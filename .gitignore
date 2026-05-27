@@ -1,0 +1,16 @@
+temp/*
+!temp/.gitkeep
+data/*
+!data/.gitkeep
+
+.env
+*.pyc
+*.pyo
+__pycache__/
+.DS_Store
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/

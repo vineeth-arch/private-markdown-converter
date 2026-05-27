@@ -1,0 +1,191 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-page:        #FFF8F0;
+    --bg-surface:     #FFFFFF;
+    --border:         #1E1E1E;
+    --text-primary:   #1E1E1E;
+    --text-secondary: #4A4A4A;
+
+    --color-orange:   #FF6B35;
+    --color-yellow:   #FFD23F;
+    --color-blue:     #3A86FF;
+    --color-green:    #06D6A0;
+    --color-red:      #EF476F;
+    --color-purple:   #7B61FF;
+    --color-cyan:     #00CFE8;
+
+    --action-primary:   var(--color-orange);
+    --action-secondary: var(--color-blue);
+    --status-success:   var(--color-green);
+    --status-error:     var(--color-red);
+    --status-warning:   var(--color-yellow);
+    --status-info:      var(--color-blue);
+    --accent-tag:       var(--color-purple);
+    --accent-progress:  var(--color-cyan);
+
+    --shadow-sm:  3px 3px 0 var(--border);
+    --shadow-md:  5px 5px 0 var(--border);
+    --shadow-lg:  8px 8px 0 var(--border);
+
+    --border-width: 3px;
+    --border-style: 3px solid var(--border);
+    --radius:       12px;
+
+    --font-display: 'Archivo Black', sans-serif;
+    --font-body:    'Plus Jakarta Sans', sans-serif;
+    --font-mono:    'JetBrains Mono', monospace;
+}
+
+/* ---- Main app background ---- */
+.stApp {
+    background-color: var(--bg-page);
+    font-family: var(--font-body);
+}
+
+/* ---- Sidebar ---- */
+[data-testid="stSidebar"] {
+    background-color: var(--border) !important;
+}
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p {
+    color: white !important;
+    font-family: var(--font-body);
+}
+[data-testid="stSidebar"] .stRadio > label {
+    color: white !important;
+    font-family: var(--font-body);
+    font-weight: 600;
+}
+[data-testid="stSidebarNav"] {
+    display: none;
+}
+
+/* ---- Sidebar radio buttons (nav items) ---- */
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
+    color: white !important;
+    font-family: var(--font-body) !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    padding: 8px 12px !important;
+    border-radius: var(--radius) !important;
+    cursor: pointer;
+}
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) {
+    background: var(--color-orange) !important;
+    color: white !important;
+}
+
+/* ---- Buttons ---- */
+.stButton > button {
+    background: var(--color-orange);
+    color: white;
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-body) !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+.stButton > button:hover {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--border) !important;
+    color: white !important;
+    border-color: var(--border) !important;
+}
+.stButton > button:active {
+    transform: translate(3px, 3px);
+    box-shadow: none !important;
+}
+
+/* ---- Text inputs ---- */
+.stTextInput > div > div > input {
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    font-family: var(--font-body) !important;
+    font-size: 15px !important;
+    background: var(--bg-surface) !important;
+}
+.stTextInput > div > div > input:focus {
+    box-shadow: var(--shadow-sm) !important;
+    border-color: var(--color-blue) !important;
+}
+
+/* ---- File uploader ---- */
+[data-testid="stFileUploader"] {
+    border: var(--border-width) dashed var(--border) !important;
+    border-radius: var(--radius) !important;
+    padding: 20px !important;
+    background: var(--bg-page) !important;
+}
+[data-testid="stFileUploader"]:hover {
+    background: var(--color-yellow) !important;
+}
+
+/* ---- Expanders ---- */
+.streamlit-expanderHeader {
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    background: var(--bg-surface) !important;
+    font-family: var(--font-body) !important;
+    font-weight: 600 !important;
+}
+
+/* ---- Metrics ---- */
+[data-testid="stMetric"] {
+    background: var(--bg-surface);
+    border: var(--border-style);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 16px;
+}
+
+/* ---- Alerts ---- */
+.stAlert {
+    border-radius: var(--radius) !important;
+    border-width: var(--border-width) !important;
+    font-family: var(--font-body) !important;
+}
+
+/* ---- Dataframes / tables ---- */
+.stDataFrame {
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+}
+
+/* ---- Select boxes ---- */
+.stSelectbox > div > div {
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    font-family: var(--font-body) !important;
+}
+
+/* ---- Progress bar ---- */
+.stProgress > div > div > div {
+    background-color: var(--color-cyan) !important;
+}
+
+/* ---- Headers ---- */
+h1, h2, h3 {
+    font-family: var(--font-display) !important;
+    color: var(--text-primary) !important;
+}
+h4, h5, h6 {
+    font-family: var(--font-body) !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+}
+
+/* ---- Body text ---- */
+p, li, span {
+    font-family: var(--font-body);
+    color: var(--text-primary);
+}
+
+code, pre {
+    font-family: var(--font-mono) !important;
+}
