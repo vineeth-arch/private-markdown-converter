@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
+from src.db.database import init_database
 from src.security.temp_cleanup import cleanup_temp_dir
 from src.pages import (
     convert_page,
@@ -56,6 +57,7 @@ inject_custom_css()
 
 if "startup_done" not in st.session_state:
     cleanup_temp_dir()
+    init_database()
     st.session_state["startup_done"] = True
 
 NAV_ITEMS = [
