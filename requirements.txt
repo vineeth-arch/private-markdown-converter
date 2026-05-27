@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 markitdown[all]>=0.0.1
 pikepdf>=8.0.0
 keyring>=25.0.0
+msoffcrypto-tool>=6.0.0

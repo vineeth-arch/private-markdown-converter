@@ -2,6 +2,7 @@ import os
 import sqlite3
 import uuid
 import logging
+import zipfile
 from datetime import date
 from pathlib import Path
 from time import perf_counter
@@ -19,6 +20,7 @@ from src.db.password_profiles import (
     update_last_used,
 )
 from src.export.zip_export import cleanup_zip, create_zip, merge_to_markdown
+from src.security.office_unlock import is_office_file_encrypted, unlock_office_file
 from src.security.password_vault import get_password, save_password
 from src.security.pdf_unlock import is_pdf_encrypted, unlock_pdf
 from src.security.temp_cleanup import cleanup_temp_file
@@ -30,6 +32,10 @@ MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 ENGINE_NAME = "markitdown"
 CONVERSION_RESULTS_KEY = "conversion_results"
 LAST_PASSWORD_PROFILE_KEY = "last_password_profile_id"
+PROTECTED_KIND_PDF = "pdf"
+PROTECTED_KIND_OFFICE = "office"
+PROTECTED_KIND_UNSUPPORTED = "unsupported"
+SUPPORTED_PROTECTED_KINDS = {PROTECTED_KIND_PDF, PROTECTED_KIND_OFFICE}
 
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
@@ -100,40 +106,72 @@ def _render_empty_state() -> None:
     )
 
 
-def _render_file_list(uploaded_files: list) -> None:
-    items_html = "".join(
+def _protection_status_label(protection_kind: str | None) -> tuple[str, str, str]:
+    if protection_kind == PROTECTED_KIND_PDF:
+        return ("PROTECTED PDF", "#FFD23F", "#1E1E1E")
+    if protection_kind == PROTECTED_KIND_OFFICE:
+        return ("PROTECTED OFFICE", "#7B61FF", "#FFFFFF")
+    if protection_kind == PROTECTED_KIND_UNSUPPORTED:
+        return ("UNSUPPORTED PROTECTED", "#EF476F", "#FFFFFF")
+    return ("READY", "#06D6A0", "#1E1E1E")
+
+
+def _render_file_card(uploaded_file, protection_kind: str | None) -> None:
+    extension = Path(uploaded_file.name).suffix.lstrip(".").upper() or "FILE"
+    status_label, status_bg, status_fg = _protection_status_label(protection_kind)
+    st.markdown(
         f"""
         <div style="
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 0;
-            border-bottom: 1px solid #E0E0E0;
+            background: #FFFFFF;
+            border: 3px solid #1E1E1E;
+            border-radius: 12px;
+            box-shadow: 5px 5px 0 #1E1E1E;
+            padding: 18px 20px;
+            margin: 10px 0;
+            min-height: 132px;
         ">
-            <span style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 13px;
-                background: #7B61FF;
-                color: white;
-                border: 2px solid #1E1E1E;
-                border-radius: 6px;
-                padding: 2px 10px;
-            ">{Path(f.name).suffix.lstrip('.').upper() or 'FILE'}</span>
-            <span style="
-                font-family: 'Plus Jakarta Sans', sans-serif;
-                font-size: 14px;
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+                <span style="
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 13px;
+                    background: #1E1E1E;
+                    color: white;
+                    border: 2px solid #1E1E1E;
+                    border-radius: 6px;
+                    padding: 2px 10px;
+                ">{extension}</span>
+                <span style="
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 11px;
+                    background: {status_bg};
+                    color: {status_fg};
+                    border: 2px solid #1E1E1E;
+                    border-radius: 6px;
+                    padding: 3px 8px;
+                    text-align: center;
+                ">{status_label}</span>
+            </div>
+            <p style="
+                font-family: 'Archivo Black', sans-serif;
+                font-size: 16px;
                 color: #1E1E1E;
-                flex: 1;
-            ">{f.name}</span>
-            <span style="
+                margin: 14px 0 10px 0;
+                line-height: 1.35;
+                word-break: break-word;
+            ">{uploaded_file.name}</p>
+            <p style="
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 12px;
                 color: #4A4A4A;
-            ">{f.size / 1024:.1f} KB</span>
+                margin: 0;
+            ">{uploaded_file.size / 1024:.1f} KB</p>
         </div>
-        """
-        for f in uploaded_files
+        """,
+        unsafe_allow_html=True,
     )
+
+
+def _render_file_list(uploaded_files: list, protection_kinds: dict[int, str | None]) -> None:
     st.markdown(
         f"""
         <div style="
@@ -148,13 +186,19 @@ def _render_file_list(uploaded_files: list) -> None:
                 font-family: 'Archivo Black', sans-serif;
                 font-size: 16px;
                 color: #1E1E1E;
-                margin: 0 0 8px 0;
-            ">{len(uploaded_files)} FILE{'S' if len(uploaded_files) != 1 else ''} READY</p>
-            {items_html}
+                margin: 0;
+            ">{len(uploaded_files)} FILE{'S' if len(uploaded_files) != 1 else ''} IN QUEUE</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    current_columns = None
+    for index, uploaded_file in enumerate(uploaded_files):
+        if index % 2 == 0:
+            current_columns = st.columns(2, gap="medium")
+        with current_columns[index % 2]:
+            _render_file_card(uploaded_file, protection_kinds.get(index))
 
 
 def _render_result(filename: str, ok: bool, content: str, show_download: bool = True) -> None:
@@ -267,14 +311,11 @@ def _get_selected_profile_id(selected_label: str, options: list[tuple[str, int |
 
 
 def _common_matching_profile_id(
-    uploaded_files: list,
-    encrypted_flags: list[bool],
+    protected_indices: list[int],
     matching_profiles_by_index: dict[int, list[dict]],
 ) -> int | None:
     matching_profile_ids: list[int] = []
-    for index, _ in enumerate(uploaded_files):
-        if not encrypted_flags[index]:
-            continue
+    for index in protected_indices:
         matches = matching_profiles_by_index.get(index, [])
         if not matches:
             return None
@@ -300,13 +341,41 @@ def _is_encrypted_pdf(uploaded_file) -> bool:
         cleanup_temp_file(temp_path)
 
 
-def _render_password_fields(uploaded_files: list, encrypted_flags: list[bool]) -> dict[int, dict[str, str | bool | int | None]]:
-    password_inputs: dict[int, dict[str, str | bool | int | None]] = {}
-    encrypted_count = sum(encrypted_flags)
-    if encrypted_count == 0:
-        return password_inputs
+def _is_zip_encrypted(filepath: Path) -> bool:
+    try:
+        with zipfile.ZipFile(filepath) as archive:
+            return any(info.flag_bits & 0x1 for info in archive.infolist())
+    except Exception:
+        return False
 
-    all_profiles = get_all_profiles()
+
+def _get_file_protection_kind(uploaded_file) -> str | None:
+    suffix = Path(uploaded_file.name).suffix.lower()
+    if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+        return None
+
+    TEMP_DIR.mkdir(exist_ok=True)
+    temp_path = TEMP_DIR / f"{uuid.uuid4().hex}{suffix}"
+    try:
+        temp_path.write_bytes(uploaded_file.getvalue())
+        if suffix == ".pdf" and is_pdf_encrypted(temp_path):
+            return PROTECTED_KIND_PDF
+        if suffix in {".docx", ".xlsx", ".pptx"} and is_office_file_encrypted(temp_path):
+            return PROTECTED_KIND_OFFICE
+        if suffix == ".zip" and _is_zip_encrypted(temp_path):
+            return PROTECTED_KIND_UNSUPPORTED
+        return None
+    finally:
+        cleanup_temp_file(temp_path)
+
+
+def _render_protected_file_intro(protected_count: int, unsupported_count: int) -> None:
+    unsupported_text = ""
+    if unsupported_count:
+        unsupported_text = (
+            f"<br><br><strong>{unsupported_count} protected file"
+            f"{'s are' if unsupported_count != 1 else ' is'} not supported yet.</strong>"
+        )
 
     st.markdown(
         f"""
@@ -315,37 +384,124 @@ def _render_password_fields(uploaded_files: list, encrypted_flags: list[bool]) -
             border: 3px solid #1E1E1E;
             border-radius: 12px;
             box-shadow: 5px 5px 0 #1E1E1E;
-            padding: 20px 24px;
-            margin: 16px 0 20px 0;
+            padding: 22px 24px;
+            margin: 20px 0 12px 0;
         ">
             <p style="
                 font-family: 'Archivo Black', sans-serif;
-                font-size: 16px;
+                font-size: 18px;
                 color: #1E1E1E;
                 margin: 0 0 8px 0;
-            ">{encrypted_count} ENCRYPTED PDF{'S' if encrypted_count != 1 else ''} DETECTED</p>
+            ">PROTECTED FILES</p>
             <p style="
                 font-family: 'Plus Jakarta Sans', sans-serif;
                 font-size: 14px;
                 color: #1E1E1E;
                 margin: 0;
+                line-height: 1.5;
             ">
-                Use a saved profile or enter a manual password for each protected PDF. Unlocked files are created in temp, converted, and deleted immediately.
+                {protected_count} password-protected file{'s need' if protected_count != 1 else ' needs'} setup before conversion.
+                Saved profiles and manual passwords live here so the main conversion flow stays clean.
+                {unsupported_text}
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+
+def _render_protected_file_card_header(uploaded_file, protection_kind: str) -> None:
+    kind_label = "PDF" if protection_kind == PROTECTED_KIND_PDF else "OFFICE"
+    st.markdown(
+        f"""
+        <div style="
+            background: #FFFFFF;
+            border: 3px solid #1E1E1E;
+            border-radius: 12px;
+            box-shadow: 5px 5px 0 #1E1E1E;
+            padding: 18px 20px;
+            margin: 10px 0 12px 0;
+            min-height: 118px;
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                <span style="
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 12px;
+                    background: #1E1E1E;
+                    color: white;
+                    border: 2px solid #1E1E1E;
+                    border-radius: 6px;
+                    padding: 2px 10px;
+                ">{kind_label}</span>
+                <span style="
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 11px;
+                    background: #7B61FF;
+                    color: white;
+                    border: 2px solid #1E1E1E;
+                    border-radius: 6px;
+                    padding: 3px 8px;
+                ">PASSWORD REQUIRED</span>
+            </div>
+            <p style="
+                font-family: 'Archivo Black', sans-serif;
+                font-size: 15px;
+                color: #1E1E1E;
+                margin: 14px 0 10px 0;
+                line-height: 1.35;
+                word-break: break-word;
+            ">{uploaded_file.name}</p>
+            <p style="
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 12px;
+                color: #4A4A4A;
+                margin: 0;
+            ">{uploaded_file.size / 1024:.1f} KB</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_unsupported_protected_files(uploaded_files: list, unsupported_indices: list[int]) -> None:
+    if not unsupported_indices:
+        return
+
+    unsupported_names = ", ".join(uploaded_files[index].name for index in unsupported_indices)
+    st.warning(
+        "These password-protected files are not supported yet and should be unlocked before upload: "
+        f"{unsupported_names}"
+    )
+
+
+def _render_protected_files_section(
+    uploaded_files: list,
+    protection_kinds: dict[int, str | None],
+) -> dict[int, dict[str, str | bool | int | None]]:
+    password_inputs: dict[int, dict[str, str | bool | int | None]] = {}
+    protected_indices = [
+        index for index, kind in protection_kinds.items() if kind in SUPPORTED_PROTECTED_KINDS
+    ]
+    unsupported_indices = [
+        index for index, kind in protection_kinds.items() if kind == PROTECTED_KIND_UNSUPPORTED
+    ]
+    if not protected_indices and not unsupported_indices:
+        return password_inputs
+
+    _render_protected_file_intro(len(protected_indices), len(unsupported_indices))
+    _render_unsupported_protected_files(uploaded_files, unsupported_indices)
+
+    if not protected_indices:
+        return password_inputs
+
+    all_profiles = get_all_profiles()
     matching_profiles_by_index = {
-        index: get_matching_profiles(uploaded_file.name)
-        for index, uploaded_file in enumerate(uploaded_files)
-        if encrypted_flags[index]
+        index: get_matching_profiles(uploaded_files[index].name)
+        for index in protected_indices
     }
-    encrypted_upload_signature = str(abs(hash(tuple(
-        uploaded_file.name
-        for index, uploaded_file in enumerate(uploaded_files)
-        if encrypted_flags[index]
+    protected_signature = str(abs(hash(tuple(
+        (uploaded_files[index].name, protection_kinds[index])
+        for index in protected_indices
     ))))
     options = _build_profile_options(all_profiles)
     batch_profile_id: int | None = None
@@ -359,102 +515,91 @@ def _render_password_fields(uploaded_files: list, encrypted_flags: list[bool]) -
         default_profile_id = remembered_profile_id
         if default_profile_id is None:
             default_profile_id = _common_matching_profile_id(
-                uploaded_files,
-                encrypted_flags,
+                protected_indices,
                 matching_profiles_by_index,
             )
 
         batch_selected_label = st.selectbox(
-            "Use one saved profile for all encrypted PDFs",
+            "Use one saved profile for all protected files",
             options=[label for label, _ in options],
             index=_find_option_index(options, default_profile_id),
             key=(
                 "batch_password_profile_selector_"
-                f"{encrypted_upload_signature}_{default_profile_id or 'manual'}"
+                f"{protected_signature}_{default_profile_id or 'manual'}"
             ),
         )
         batch_profile_id = _get_selected_profile_id(batch_selected_label, options)
-
-    for index, uploaded_file in enumerate(uploaded_files):
-        if not encrypted_flags[index]:
-            continue
-
-        matching_profiles = matching_profiles_by_index.get(index, [])
-        suggested_profile = matching_profiles[0] if matching_profiles else None
-        default_profile_id = batch_profile_id
-        if default_profile_id is None and not all_profiles and suggested_profile is not None:
-            default_profile_id = suggested_profile["id"]
-
-        st.markdown(
-            f"""
-            <div style="
-                background: #FFFFFF;
-                border: 3px solid #1E1E1E;
-                border-radius: 12px;
-                box-shadow: 5px 5px 0 #1E1E1E;
-                padding: 20px 24px;
-                margin: 12px 0;
-            ">
-                <p style="
-                    font-family: 'Archivo Black', sans-serif;
-                    font-size: 14px;
-                    color: #1E1E1E;
-                    margin: 0 0 12px 0;
-                ">{uploaded_file.name}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    else:
+        st.caption(
+            "No saved profiles yet. Enter passwords manually here or create a reusable profile on the Password Profiles page."
         )
 
-        selected_label = st.selectbox(
-            f"Saved Profiles for {uploaded_file.name}",
-            options=[label for label, _ in options],
-            index=_find_option_index(options, default_profile_id),
-            key=f"saved_profile_{encrypted_upload_signature}_{index}_{batch_profile_id or 'manual'}",
-        )
-        selected_profile_id = _get_selected_profile_id(selected_label, options)
+    current_columns = None
+    for card_position, index in enumerate(protected_indices):
+        if card_position % 2 == 0:
+            current_columns = st.columns(2, gap="medium")
+        with current_columns[card_position % 2]:
+            uploaded_file = uploaded_files[index]
+            protection_kind = protection_kinds[index]
+            _render_protected_file_card_header(uploaded_file, protection_kind)
+            matching_profiles = matching_profiles_by_index.get(index, [])
+            suggested_profile = matching_profiles[0] if matching_profiles else None
+            default_profile_id = batch_profile_id
+            if default_profile_id is None and suggested_profile is not None:
+                default_profile_id = suggested_profile["id"]
 
-        if suggested_profile is not None:
-            st.caption(
-                f"Suggested profile based on filename pattern: {suggested_profile['profile_name']}"
+            selected_label = st.selectbox(
+                f"Saved profile for {uploaded_file.name}",
+                options=[label for label, _ in options],
+                index=_find_option_index(options, default_profile_id),
+                key=f"saved_profile_{protected_signature}_{index}_{batch_profile_id or 'manual'}",
             )
+            selected_profile_id = _get_selected_profile_id(selected_label, options)
 
-        if selected_profile_id is None:
-            manual_password = st.text_input(
-                f"PDF Password for {uploaded_file.name}",
-                type="password",
-                autocomplete="off",
-            )
-            save_after_success = st.checkbox(
-                f"Save this password if conversion succeeds for {uploaded_file.name}",
-                key=f"save_password_{index}",
-            )
-            new_profile_name = ""
-            new_profile_pattern = ""
-            if save_after_success:
-                new_profile_name = st.text_input(
-                    f"New profile name for {uploaded_file.name}",
-                    value=Path(uploaded_file.name).stem,
+            if suggested_profile is not None:
+                st.caption(
+                    f"Suggested profile based on filename pattern: {suggested_profile['profile_name']}"
                 )
-                new_profile_pattern = st.text_input(
-                    f"Filename pattern for {uploaded_file.name}",
-                    value=f"*{Path(uploaded_file.name).stem}*",
+
+            if selected_profile_id is None:
+                manual_password = st.text_input(
+                    f"Password for {uploaded_file.name}",
+                    type="password",
+                    autocomplete="off",
+                    key=f"manual_password_{protected_signature}_{index}",
                 )
-            password_inputs[index] = {
-                "profile_id": None,
-                "password": manual_password,
-                "save_after_success": save_after_success,
-                "new_profile_name": new_profile_name,
-                "new_profile_pattern": new_profile_pattern,
-            }
-        else:
-            password_inputs[index] = {
-                "profile_id": selected_profile_id,
-                "password": None,
-                "save_after_success": False,
-                "new_profile_name": "",
-                "new_profile_pattern": "",
-            }
+                save_after_success = st.checkbox(
+                    f"Save this password if conversion succeeds for {uploaded_file.name}",
+                    key=f"save_password_{protected_signature}_{index}",
+                )
+                new_profile_name = ""
+                new_profile_pattern = ""
+                if save_after_success:
+                    new_profile_name = st.text_input(
+                        f"New profile name for {uploaded_file.name}",
+                        value=Path(uploaded_file.name).stem,
+                        key=f"new_profile_name_{protected_signature}_{index}",
+                    )
+                    new_profile_pattern = st.text_input(
+                        f"Filename pattern for {uploaded_file.name}",
+                        value=f"*{Path(uploaded_file.name).stem}*",
+                        key=f"new_profile_pattern_{protected_signature}_{index}",
+                    )
+                password_inputs[index] = {
+                    "profile_id": None,
+                    "password": manual_password,
+                    "save_after_success": save_after_success,
+                    "new_profile_name": new_profile_name,
+                    "new_profile_pattern": new_profile_pattern,
+                }
+            else:
+                password_inputs[index] = {
+                    "profile_id": selected_profile_id,
+                    "password": None,
+                    "save_after_success": False,
+                    "new_profile_name": "",
+                    "new_profile_pattern": "",
+                }
 
     return password_inputs
 
@@ -476,9 +621,12 @@ def render(page_header) -> None:
         _render_empty_state()
         return
 
-    _render_file_list(uploaded_files)
-    encrypted_flags = [_is_encrypted_pdf(uploaded_file) for uploaded_file in uploaded_files]
-    password_inputs = _render_password_fields(uploaded_files, encrypted_flags)
+    protection_kinds = {
+        index: _get_file_protection_kind(uploaded_file)
+        for index, uploaded_file in enumerate(uploaded_files)
+    }
+    _render_file_list(uploaded_files, protection_kinds)
+    password_inputs = _render_protected_files_section(uploaded_files, protection_kinds)
 
     if st.button("CONVERT", use_container_width=True):
         results: dict[str, tuple[bool, str]] = {}
@@ -509,8 +657,22 @@ def render(page_header) -> None:
                 try:
                     temp_path.write_bytes(uploaded_file.getvalue())
 
+                    protection_kind = protection_kinds.get(index)
+                    if protection_kind == PROTECTED_KIND_UNSUPPORTED:
+                        error_message = "This password-protected file type is not supported yet. Please unlock it before upload."
+                        results[uploaded_file.name] = (False, error_message)
+                        _store_history_record(
+                            filename=uploaded_file.name,
+                            extension=suffix,
+                            ok=False,
+                            duration_seconds=perf_counter() - started_at,
+                            file_size=uploaded_file.size,
+                            message=error_message,
+                        )
+                        continue
+
                     file_to_convert = temp_path
-                    if encrypted_flags[index]:
+                    if protection_kind in SUPPORTED_PROTECTED_KINDS:
                         password_input = password_inputs.get(index, {})
                         selected_profile_id = password_input.get("profile_id")
                         password = ""
@@ -538,7 +700,7 @@ def render(page_header) -> None:
                             password = str(password_input.get("password") or "")
 
                         if not password:
-                            error_message = "This PDF is password protected. Enter a password to convert it."
+                            error_message = "This file is password protected. Enter a password to convert it."
                             results[uploaded_file.name] = (
                                 False,
                                 error_message,
@@ -554,7 +716,10 @@ def render(page_header) -> None:
                             continue
 
                         try:
-                            unlocked_temp_path = unlock_pdf(temp_path, password, TEMP_DIR)
+                            if protection_kind == PROTECTED_KIND_PDF:
+                                unlocked_temp_path = unlock_pdf(temp_path, password, TEMP_DIR)
+                            else:
+                                unlocked_temp_path = unlock_office_file(temp_path, password, TEMP_DIR)
                         except ValueError:
                             error_message = "The password appears to be incorrect. Please check and try again."
                             results[uploaded_file.name] = (
@@ -587,7 +752,7 @@ def render(page_header) -> None:
 
                     ok, content = route_file(file_to_convert, engine=ENGINE_NAME)
                     results[uploaded_file.name] = (ok, content)
-                    if ok and encrypted_flags[index]:
+                    if ok and protection_kind in SUPPORTED_PROTECTED_KINDS:
                         password_input = password_inputs.get(index, {})
                         selected_profile_id = password_input.get("profile_id")
                         if selected_profile_id is not None:
