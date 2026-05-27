@@ -30,3 +30,23 @@ def create_zip(files: dict[str, str], temp_dir: Path) -> Path:
             archive.writestr(archive_name, markdown_content.encode("utf-8"))
 
     return zip_path
+
+
+def cleanup_zip(zip_path: Path) -> None:
+    """Delete a temp ZIP file without surfacing cleanup failures."""
+    try:
+        if zip_path.exists():
+            zip_path.unlink()
+    except OSError:
+        pass
+
+
+def merge_to_markdown(files: dict[str, str]) -> str:
+    """Merge Markdown outputs into a single document in insertion order."""
+    sections = []
+
+    for filename, markdown_content in files.items():
+        title = Path(filename).stem or "output"
+        sections.append(f"---\n\n# {title}\n\n{markdown_content}")
+
+    return "\n\n".join(sections)
