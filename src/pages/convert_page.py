@@ -26,7 +26,7 @@ from src.security.temp_cleanup import cleanup_temp_file
 logger = logging.getLogger(__name__)
 
 TEMP_DIR = Path("temp")
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 ENGINE_NAME = "markitdown"
 CONVERSION_RESULTS_KEY = "conversion_results"
 

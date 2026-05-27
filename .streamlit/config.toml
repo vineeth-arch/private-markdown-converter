@@ -1,0 +1,13 @@
+[server]
+maxUploadSize = 100
+enableCORS = false
+enableXsrfProtection = false
+runOnSave = false
+websocketPingInterval = 30
+disconnectedSessionTTL = 31536000
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+fastReruns = true

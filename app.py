@@ -29,6 +29,30 @@ def inject_custom_css() -> None:
         st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
 
+def inject_keepalive() -> None:
+    # NOTE: If the Mac goes to sleep and the Streamlit server process is killed by
+    # the OS, the app must be restarted manually. Session state (converted files
+    # in memory) will be lost on server restart. This is an OS-level constraint.
+    # The keepalive and timeout config only prevent disconnection while the Mac
+    # is awake.
+    st.markdown(
+        """
+        <script>
+        (function() {
+            if (window._pmcKeepaliveActive) return;
+            window._pmcKeepaliveActive = true;
+            setInterval(function() {
+                fetch('/_stcore/health')
+                    .then(function() {})
+                    .catch(function() {});
+            }, 25000);
+        })();
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 def page_header(title: str, color: str) -> None:
     st.markdown(
         f"""
@@ -54,6 +78,7 @@ def page_header(title: str, color: str) -> None:
 
 
 inject_custom_css()
+inject_keepalive()
 
 if "startup_done" not in st.session_state:
     cleanup_temp_dir()
