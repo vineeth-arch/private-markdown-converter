@@ -29,6 +29,7 @@ TEMP_DIR = Path("temp")
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 ENGINE_NAME = "markitdown"
 CONVERSION_RESULTS_KEY = "conversion_results"
+LAST_PASSWORD_PROFILE_KEY = "last_password_profile_id"
 
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
@@ -248,6 +249,42 @@ def _profile_option_label(profile: dict) -> str:
     return f"{profile['profile_name']} ({pattern})"
 
 
+def _build_profile_options(profiles: list[dict]) -> list[tuple[str, int | None]]:
+    return [("Manual password", None)] + [
+        (_profile_option_label(profile), profile["id"]) for profile in profiles
+    ]
+
+
+def _find_option_index(options: list[tuple[str, int | None]], profile_id: int | None) -> int:
+    for index, (_, option_profile_id) in enumerate(options):
+        if option_profile_id == profile_id:
+            return index
+    return 0
+
+
+def _get_selected_profile_id(selected_label: str, options: list[tuple[str, int | None]]) -> int | None:
+    return next(profile_id for label, profile_id in options if label == selected_label)
+
+
+def _common_matching_profile_id(
+    uploaded_files: list,
+    encrypted_flags: list[bool],
+    matching_profiles_by_index: dict[int, list[dict]],
+) -> int | None:
+    matching_profile_ids: list[int] = []
+    for index, _ in enumerate(uploaded_files):
+        if not encrypted_flags[index]:
+            continue
+        matches = matching_profiles_by_index.get(index, [])
+        if not matches:
+            return None
+        matching_profile_ids.append(matches[0]["id"])
+
+    if matching_profile_ids and len(set(matching_profile_ids)) == 1:
+        return matching_profile_ids[0]
+    return None
+
+
 def _is_encrypted_pdf(uploaded_file) -> bool:
     if Path(uploaded_file.name).suffix.lower() != ".pdf":
         return False
@@ -300,20 +337,53 @@ def _render_password_fields(uploaded_files: list, encrypted_flags: list[bool]) -
         unsafe_allow_html=True,
     )
 
+    matching_profiles_by_index = {
+        index: get_matching_profiles(uploaded_file.name)
+        for index, uploaded_file in enumerate(uploaded_files)
+        if encrypted_flags[index]
+    }
+    encrypted_upload_signature = str(abs(hash(tuple(
+        uploaded_file.name
+        for index, uploaded_file in enumerate(uploaded_files)
+        if encrypted_flags[index]
+    ))))
+    options = _build_profile_options(all_profiles)
+    batch_profile_id: int | None = None
+
+    if all_profiles:
+        profile_ids = {profile["id"] for profile in all_profiles}
+        remembered_profile_id = st.session_state.get(LAST_PASSWORD_PROFILE_KEY)
+        if remembered_profile_id not in profile_ids:
+            remembered_profile_id = None
+
+        default_profile_id = remembered_profile_id
+        if default_profile_id is None:
+            default_profile_id = _common_matching_profile_id(
+                uploaded_files,
+                encrypted_flags,
+                matching_profiles_by_index,
+            )
+
+        batch_selected_label = st.selectbox(
+            "Use one saved profile for all encrypted PDFs",
+            options=[label for label, _ in options],
+            index=_find_option_index(options, default_profile_id),
+            key=(
+                "batch_password_profile_selector_"
+                f"{encrypted_upload_signature}_{default_profile_id or 'manual'}"
+            ),
+        )
+        batch_profile_id = _get_selected_profile_id(batch_selected_label, options)
+
     for index, uploaded_file in enumerate(uploaded_files):
         if not encrypted_flags[index]:
             continue
 
-        matching_profiles = get_matching_profiles(uploaded_file.name)
+        matching_profiles = matching_profiles_by_index.get(index, [])
         suggested_profile = matching_profiles[0] if matching_profiles else None
-        options: list[tuple[str, int | None]] = [("Manual password", None)]
-        options.extend((_profile_option_label(profile), profile["id"]) for profile in all_profiles)
-        default_option_index = 0
-        if suggested_profile is not None:
-            for option_index, (_, profile_id) in enumerate(options):
-                if profile_id == suggested_profile["id"]:
-                    default_option_index = option_index
-                    break
+        default_profile_id = batch_profile_id
+        if default_profile_id is None and not all_profiles and suggested_profile is not None:
+            default_profile_id = suggested_profile["id"]
 
         st.markdown(
             f"""
@@ -339,12 +409,10 @@ def _render_password_fields(uploaded_files: list, encrypted_flags: list[bool]) -
         selected_label = st.selectbox(
             f"Saved Profiles for {uploaded_file.name}",
             options=[label for label, _ in options],
-            index=default_option_index,
-            key=f"saved_profile_{index}",
+            index=_find_option_index(options, default_profile_id),
+            key=f"saved_profile_{encrypted_upload_signature}_{index}_{batch_profile_id or 'manual'}",
         )
-        selected_profile_id = next(
-            profile_id for label, profile_id in options if label == selected_label
-        )
+        selected_profile_id = _get_selected_profile_id(selected_label, options)
 
         if suggested_profile is not None:
             st.caption(
@@ -523,7 +591,9 @@ def render(page_header) -> None:
                         password_input = password_inputs.get(index, {})
                         selected_profile_id = password_input.get("profile_id")
                         if selected_profile_id is not None:
-                            update_last_used(int(selected_profile_id))
+                            selected_profile_id = int(selected_profile_id)
+                            update_last_used(selected_profile_id)
+                            st.session_state[LAST_PASSWORD_PROFILE_KEY] = selected_profile_id
                         elif password_input.get("save_after_success"):
                             new_profile_name = str(password_input.get("new_profile_name") or "").strip()
                             new_profile_pattern = str(password_input.get("new_profile_pattern") or "").strip()
@@ -537,6 +607,7 @@ def render(page_header) -> None:
                                         "pending",
                                     )
                                     save_password(profile_id, password)
+                                    st.session_state[LAST_PASSWORD_PROFILE_KEY] = profile_id
                                 except sqlite3.IntegrityError:
                                     st.warning(
                                         f"Converted {uploaded_file.name}, but the new profile name already exists."
