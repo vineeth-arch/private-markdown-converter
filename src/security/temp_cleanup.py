@@ -15,3 +15,12 @@ def cleanup_temp_dir() -> None:
             removed += 1
     if removed:
         logging.info("Startup cleanup: removed %d file(s) from temp/", removed)
+
+
+def cleanup_temp_file(filepath: Path) -> None:
+    """Delete a specific temp file. Safe to call even if file doesn't exist."""
+    try:
+        if filepath.exists():
+            filepath.unlink()
+    except OSError:
+        logging.warning("Could not delete temp file: %s", filepath.name)
