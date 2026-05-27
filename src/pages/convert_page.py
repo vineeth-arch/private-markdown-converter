@@ -17,6 +17,7 @@ from src.db.password_profiles import (
     insert_profile,
     update_last_used,
 )
+from src.export.zip_export import create_zip
 from src.security.password_vault import get_password, save_password
 from src.security.pdf_unlock import is_pdf_encrypted, unlock_pdf
 from src.security.temp_cleanup import cleanup_temp_file
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 TEMP_DIR = Path("temp")
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 ENGINE_NAME = "markitdown"
+CONVERSION_RESULTS_KEY = "conversion_results"
+ZIP_EXPORT_PATH_KEY = "zip_export_path"
+ZIP_EXPORT_READY_KEY = "zip_export_ready"
 
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
@@ -169,6 +173,73 @@ def _render_result(filename: str, ok: bool, content: str) -> None:
         )
     else:
         st.error(f"Failed to convert {filename}: {content}")
+
+
+def _clear_zip_export() -> None:
+    zip_path_value = st.session_state.pop(ZIP_EXPORT_PATH_KEY, None)
+    st.session_state.pop(ZIP_EXPORT_READY_KEY, None)
+    if zip_path_value:
+        cleanup_temp_file(Path(zip_path_value))
+
+
+def clear_session_state() -> None:
+    """Clear Convert-page session data when uploads reset or the user navigates away."""
+    _clear_zip_export()
+    st.session_state.pop(CONVERSION_RESULTS_KEY, None)
+
+
+def _build_zip_files(results: dict[str, tuple[bool, str]]) -> dict[str, str]:
+    zip_files: dict[str, str] = {}
+    used_names: set[str] = set()
+
+    for filename, (ok, content) in results.items():
+        if not ok:
+            continue
+
+        stem = Path(filename).stem or "output"
+        archive_name = f"{stem}.md"
+        counter = 2
+        while archive_name in used_names:
+            archive_name = f"{stem}-{counter}.md"
+            counter += 1
+
+        used_names.add(archive_name)
+        zip_files[archive_name] = content
+
+    return zip_files
+
+
+def _render_zip_download(results: dict[str, tuple[bool, str]]) -> None:
+    zip_files = _build_zip_files(results)
+    if len(zip_files) < 2:
+        _clear_zip_export()
+        return
+
+    zip_path_value = st.session_state.get(ZIP_EXPORT_PATH_KEY)
+    zip_ready = bool(zip_path_value and st.session_state.get(ZIP_EXPORT_READY_KEY))
+
+    if not zip_ready:
+        if st.button("Download all as ZIP", use_container_width=True, key="prepare_zip_download"):
+            _clear_zip_export()
+            zip_path = create_zip(zip_files, TEMP_DIR)
+            st.session_state[ZIP_EXPORT_PATH_KEY] = str(zip_path)
+            st.session_state[ZIP_EXPORT_READY_KEY] = True
+            st.rerun()
+        return
+
+    zip_path = Path(zip_path_value)
+    if not zip_path.exists():
+        _clear_zip_export()
+        return
+
+    st.download_button(
+        label="Download all as ZIP",
+        data=zip_path.read_bytes(),
+        file_name="markdown-exports.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="download_zip_export",
+    )
 
 
 def _profile_option_label(profile: dict) -> str:
@@ -332,8 +403,7 @@ def render(page_header) -> None:
     )
 
     if not uploaded_files:
-        if "conversion_results" in st.session_state:
-            del st.session_state["conversion_results"]
+        clear_session_state()
         _render_empty_state()
         return
 
@@ -342,6 +412,7 @@ def render(page_header) -> None:
     password_inputs = _render_password_fields(uploaded_files, encrypted_flags)
 
     if st.button("CONVERT", use_container_width=True):
+        _clear_zip_export()
         results: dict[str, tuple[bool, str]] = {}
         with st.spinner("Converting files…"):
             TEMP_DIR.mkdir(exist_ok=True)
@@ -499,12 +570,13 @@ def render(page_header) -> None:
                         cleanup_temp_file(unlocked_temp_path)
                     cleanup_temp_file(temp_path)
 
-        st.session_state["conversion_results"] = results
+        st.session_state[CONVERSION_RESULTS_KEY] = results
 
-    if "conversion_results" not in st.session_state:
+    if CONVERSION_RESULTS_KEY not in st.session_state:
         return
 
-    results = st.session_state["conversion_results"]
+    results = st.session_state[CONVERSION_RESULTS_KEY]
+    _render_zip_download(results)
 
     if len(results) == 1:
         filename, (ok, content) = next(iter(results.items()))

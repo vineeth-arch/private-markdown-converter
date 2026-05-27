@@ -104,4 +104,7 @@ PAGE_MAP = {
     "Help": help_page,
 }
 
+if selected != "Convert":
+    convert_page.clear_session_state()
+
 PAGE_MAP[selected].render(page_header)
