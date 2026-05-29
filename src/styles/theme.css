@@ -68,14 +68,24 @@
     font-family: var(--font-body) !important;
     font-size: 15px !important;
     font-weight: 600 !important;
-    padding: 8px 12px !important;
+    padding: 8px 12px 8px 14px !important;
     border-radius: var(--radius) !important;
+    border-left: 3px solid transparent !important;
     cursor: pointer;
+    transition: background 0.1s;
 }
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) {
-    background: var(--color-orange) !important;
-    color: white !important;
-}
+/* Per-item color stripe when inactive */
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(1) { border-left-color: #FF6B35 !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(2) { border-left-color: #3A86FF !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(3) { border-left-color: #7B61FF !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(4) { border-left-color: #00CFE8 !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(5) { border-left-color: #06D6A0 !important; }
+/* Per-item active background color */
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(1):has(input:checked) { background: #FF6B35 !important; border-left-color: #FF6B35 !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(2):has(input:checked) { background: #3A86FF !important; border-left-color: #3A86FF !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(3):has(input:checked) { background: #7B61FF !important; border-left-color: #7B61FF !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(4):has(input:checked) { background: #00CFE8 !important; border-left-color: #00CFE8 !important; }
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:nth-child(5):has(input:checked) { background: #06D6A0 !important; border-left-color: #06D6A0 !important; }
 
 /* ---- Buttons ---- */
 .stButton > button {
@@ -147,11 +157,34 @@
 [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
     width: min(92%, 56rem) !important;
     margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0 !important;
 }
-[data-testid="stFileUploader"] small {
-    display: inline-block !important;
-    margin-top: 10px !important;
-    line-height: 1.5 !important;
+/* Full-width Upload button */
+[data-testid="stFileUploaderDropzone"] button {
+    width: 100% !important;
+    padding: 18px 0 !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    background: var(--color-orange) !important;
+    color: white !important;
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-sm) !important;
+    cursor: pointer !important;
+    transition: transform 0.1s, box-shadow 0.1s !important;
+}
+[data-testid="stFileUploaderDropzone"] button:hover {
+    transform: translate(2px, 2px) !important;
+    box-shadow: 1px 1px 0 var(--border) !important;
+}
+/* Hide Streamlit's inline flat extension list — replaced by empty-state grid */
+[data-testid="stFileUploaderDropzone"] small {
+    display: none !important;
 }
 
 @media (max-width: 768px) {
