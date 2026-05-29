@@ -40,6 +40,7 @@ SUPPORTED_PROTECTED_KINDS = {PROTECTED_KIND_PDF, PROTECTED_KIND_OFFICE}
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
     "json", "xml", "epub", "png", "jpg", "jpeg", "gif", "zip",
+    "h", "hpp", "hh", "hxx", "cpp", "cc", "cxx", "c",
 ]
 
 
@@ -95,7 +96,7 @@ def _render_empty_state() -> None:
                 color: #4A4A4A;
                 margin: 0;
             ">
-                PDF · DOCX · PPTX · XLSX · HTML · CSV · JSON · XML · EPUB · PNG · JPG · GIF · ZIP
+                PDF · DOCX · PPTX · XLSX · HTML · CSV · JSON · XML · EPUB · PNG · JPG · GIF · ZIP · H · CPP · C
                 <br><br>
                 Up to <strong style="font-family: 'JetBrains Mono', monospace;">{max_mb}MB</strong> per file.
                 Converted Markdown stays on your machine — nothing is uploaded anywhere.
