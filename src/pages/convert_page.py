@@ -86,64 +86,22 @@ def _render_empty_state() -> None:
     def badges(exts: list[str]) -> str:
         return "".join(f'<span style="{badge}">{e}</span>' for e in exts)
 
-    st.markdown(
-        f"""
-        <div style="
-            background: #FFFFFF;
-            border: 3px solid #1E1E1E;
-            border-radius: 12px;
-            box-shadow: 5px 5px 0 #1E1E1E;
-            padding: 36px 32px 28px;
-            margin-top: 24px;
-        ">
-            <p style="
-                font-family: 'Archivo Black', sans-serif;
-                font-size: 22px;
-                color: #FF6B35;
-                margin: 0 0 24px 0;
-                text-align: center;
-            ">DROP YOUR FILES ABOVE</p>
-
-            <div style="
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 20px;
-                margin-bottom: 24px;
-            ">
-                <div>
-                    <p style="{col_label}">Documents</p>
-                    {badges(["PDF", "DOCX", "PPTX", "XLSX", "EPUB"])}
-                </div>
-                <div>
-                    <p style="{col_label}">Web &amp; Data</p>
-                    {badges(["HTML", "CSV", "JSON", "XML"])}
-                </div>
-                <div>
-                    <p style="{col_label}">Images</p>
-                    {badges(["PNG", "JPG", "JPEG", "GIF"])}
-                </div>
-                <div>
-                    <p style="{col_label}">Code &amp; Archives</p>
-                    {badges(["H", "HPP", "HXX", "CPP", "CXX", "C", "ZIP"])}
-                </div>
+    _html = f"""
+        <div style="background:#FFFFFF;border:3px solid #1E1E1E;border-radius:12px;box-shadow:5px 5px 0 #1E1E1E;padding:36px 32px 28px;margin-top:24px;">
+            <p style="font-family:'Archivo Black',sans-serif;font-size:22px;color:#FF6B35;margin:0 0 24px 0;text-align:center;">DROP YOUR FILES ABOVE</p>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:24px;">
+                <div><p style="{col_label}">Documents</p>{badges(["PDF","DOCX","PPTX","XLSX","EPUB"])}</div>
+                <div><p style="{col_label}">Web &amp; Data</p>{badges(["HTML","CSV","JSON","XML"])}</div>
+                <div><p style="{col_label}">Images</p>{badges(["PNG","JPG","JPEG","GIF"])}</div>
+                <div><p style="{col_label}">Code &amp; Archives</p>{badges(["H","HPP","HXX","CPP","CXX","C","ZIP"])}</div>
             </div>
-
-            <p style="
-                font-family: 'Plus Jakarta Sans', sans-serif;
-                font-size: 13px;
-                color: #4A4A4A;
-                margin: 0;
-                text-align: center;
-                border-top: 2px solid #1E1E1E;
-                padding-top: 16px;
-            ">
-                Up to <strong style="font-family: 'JetBrains Mono', monospace;">{MAX_FILE_SIZE_MB}MB</strong> per file.
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;color:#4A4A4A;margin:0;text-align:center;border-top:2px solid #1E1E1E;padding-top:16px;">
+                Up to <strong style="font-family:'JetBrains Mono',monospace;">{MAX_FILE_SIZE_MB}MB</strong> per file.
                 Converted Markdown stays on your machine — nothing is uploaded anywhere.
             </p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    st.markdown("\n".join(l for l in _html.splitlines() if l.strip()), unsafe_allow_html=True)
 
 
 def _protection_status_label(protection_kind: str | None) -> tuple[str, str, str]:

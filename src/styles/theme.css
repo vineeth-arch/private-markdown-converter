@@ -148,19 +148,22 @@
     width: 100% !important;
     min-height: calc(min(48vh, 34rem) - 36px) !important;
     display: flex !important;
-    align-items: center !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
     justify-content: center !important;
     background: rgba(255, 255, 255, 0.72) !important;
     border-radius: 10px !important;
+    padding: 24px !important;
+    box-sizing: border-box !important;
 }
-[data-testid="stFileUploader"] section > div,
-[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
-    width: min(92%, 56rem) !important;
-    margin: 0 auto !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 0 !important;
+/* Span wrapping the button — stretch to full width */
+[data-testid="stFileUploaderDropzone"] > span {
+    width: 100% !important;
+    display: block !important;
+}
+/* Hide the info div (types list / drag text) — replaced by our empty-state grid */
+[data-testid="stFileUploaderDropzone"] > div {
+    display: none !important;
 }
 /* Full-width Upload button */
 [data-testid="stFileUploaderDropzone"] button {
@@ -181,10 +184,6 @@
 [data-testid="stFileUploaderDropzone"] button:hover {
     transform: translate(2px, 2px) !important;
     box-shadow: 1px 1px 0 var(--border) !important;
-}
-/* Hide Streamlit's inline flat extension list — replaced by empty-state grid */
-[data-testid="stFileUploaderDropzone"] small {
-    display: none !important;
 }
 
 @media (max-width: 768px) {

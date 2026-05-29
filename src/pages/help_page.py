@@ -95,42 +95,18 @@ def render(page_header) -> None:
         ("#00CFE8", "Metadata-Only History", "The history log stores filenames and timestamps only. No document content."),
     ]
 
-    cards_html = ""
-    for color, title, desc in _PRIVACY_ITEMS:
-        cards_html += f"""
-        <div style="
-            background: #FFFFFF;
-            border: 3px solid #1E1E1E;
-            border-radius: 10px;
-            border-left: 6px solid {color};
-            box-shadow: 3px 3px 0 #1E1E1E;
-            padding: 16px 20px;
-        ">
-            <p style="font-family: 'Archivo Black', sans-serif; font-size: 14px; color: #1E1E1E; margin: 0 0 6px 0;">{title}</p>
-            <p style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; color: #4A4A4A; margin: 0; line-height: 1.6;">{desc}</p>
+    cards_html = "".join(
+        f'<div style="background:#FFFFFF;border:3px solid #1E1E1E;border-radius:10px;border-left:6px solid {color};box-shadow:3px 3px 0 #1E1E1E;padding:16px 20px;">'
+        f'<p style="font-family:\'Archivo Black\',sans-serif;font-size:14px;color:#1E1E1E;margin:0 0 6px 0;">{title}</p>'
+        f'<p style="font-family:\'Plus Jakarta Sans\',sans-serif;font-size:13px;color:#4A4A4A;margin:0;line-height:1.6;">{desc}</p>'
+        f'</div>'
+        for color, title, desc in _PRIVACY_ITEMS
+    )
+
+    _html = f"""
+        <div style="background:#FFFFFF;border:3px solid #1E1E1E;border-radius:12px;box-shadow:5px 5px 0 #1E1E1E;padding:32px;margin-top:24px;">
+            <p style="font-family:'Archivo Black',sans-serif;font-size:18px;color:#1E1E1E;margin:0 0 20px 0;">Privacy Principles</p>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">{cards_html}</div>
         </div>
         """
-
-    st.markdown(
-        f"""
-        <div style="
-            background: #FFFFFF;
-            border: 3px solid #1E1E1E;
-            border-radius: 12px;
-            box-shadow: 5px 5px 0 #1E1E1E;
-            padding: 32px;
-            margin-top: 24px;
-        ">
-            <p style="
-                font-family: 'Archivo Black', sans-serif;
-                font-size: 18px;
-                color: #1E1E1E;
-                margin: 0 0 20px 0;
-            ">Privacy Principles</p>
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                {cards_html}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("\n".join(l for l in _html.splitlines() if l.strip()), unsafe_allow_html=True)
