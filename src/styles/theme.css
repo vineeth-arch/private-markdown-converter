@@ -112,6 +112,69 @@
     box-shadow: none !important;
 }
 
+/* ---- Convert mode switch ---- */
+.convert-mode-switch {
+    margin: 4px 0 18px 0;
+}
+
+.convert-mode-switch [data-testid="stSegmentedControl"] {
+    width: 100%;
+}
+
+.convert-mode-switch [data-baseweb="button-group"] {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    background: transparent !important;
+}
+
+.convert-mode-switch [data-baseweb="button-group"] > div {
+    width: 100%;
+}
+
+.convert-mode-switch [data-baseweb="button-group"] button {
+    width: 100%;
+    min-height: 72px;
+    padding: 16px 18px !important;
+    border: var(--border-style) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-sm) !important;
+    background: rgba(255, 255, 255, 0.78) !important;
+    color: var(--text-primary) !important;
+    font-family: var(--font-body) !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    text-align: center !important;
+    justify-content: center !important;
+    transition: transform 0.1s, box-shadow 0.1s, background 0.1s !important;
+}
+
+.convert-mode-switch [data-baseweb="button-group"] button:hover {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--border) !important;
+    background: #FFFFFF !important;
+}
+
+.convert-mode-switch [data-baseweb="button-group"] button[aria-pressed="true"] {
+    background: var(--color-orange) !important;
+    color: #FFFFFF !important;
+    border-color: var(--border) !important;
+}
+
+@media (max-width: 768px) {
+    .convert-mode-switch [data-baseweb="button-group"] {
+        gap: 10px;
+    }
+
+    .convert-mode-switch [data-baseweb="button-group"] button {
+        min-height: 64px;
+        font-size: 14px !important;
+        padding: 14px 12px !important;
+    }
+}
+
 /* ---- Text inputs ---- */
 .stTextInput > div > div > input {
     border: var(--border-style) !important;

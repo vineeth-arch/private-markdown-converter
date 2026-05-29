@@ -6,12 +6,14 @@ import streamlit.components.v1 as components
 
 class RichTextPastePayload(TypedDict):
     html: str | None
+    raw_html: str | None
     text: str | None
     has_content: bool
 
 
 _DEFAULT_PAYLOAD: RichTextPastePayload = {
     "html": None,
+    "raw_html": None,
     "text": None,
     "has_content": False,
 }
@@ -38,6 +40,7 @@ def render_rich_text_paste_input(
         return _DEFAULT_PAYLOAD.copy()
 
     html_value = payload.get("html")
+    raw_html_value = payload.get("raw_html")
     text_value = payload.get("text")
     has_content = bool(payload.get("has_content"))
 
@@ -45,6 +48,11 @@ def render_rich_text_paste_input(
         RichTextPastePayload,
         {
             "html": html_value if isinstance(html_value, str) and html_value else None,
+            "raw_html": (
+                raw_html_value
+                if isinstance(raw_html_value, str) and raw_html_value
+                else None
+            ),
             "text": text_value if isinstance(text_value, str) and text_value else None,
             "has_content": has_content,
         },

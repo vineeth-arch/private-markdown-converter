@@ -53,12 +53,30 @@
         border: 3px dashed #1e1e1e;
         border-radius: 10px;
         padding: 16px;
+        box-sizing: border-box;
+        font-family: "Plus Jakarta Sans", sans-serif;
         font-size: 15px;
         line-height: 1.6;
         outline: none;
         background: #fffaf2;
+        color: #1e1e1e;
+        caret-color: #1e1e1e;
         white-space: pre-wrap;
         overflow-wrap: break-word;
+      }
+
+      .surface,
+      .surface * {
+        color: #1e1e1e !important;
+      }
+
+      .surface mark {
+        background: #ffe28a !important;
+      }
+
+      .surface a {
+        color: #3a86ff !important;
+        text-decoration: underline;
       }
 
       .surface:focus {
@@ -101,6 +119,7 @@
       const status = document.getElementById("status");
 
       let lastResetNonce = null;
+      let lastRawHtml = null;
 
       function sendMessageToStreamlitClient(type, data) {
         const outData = Object.assign(
@@ -138,6 +157,43 @@
         return (container.textContent || container.innerText || "").trim();
       }
 
+      function resetProblematicStyles(node) {
+        if (!(node instanceof Element)) {
+          return;
+        }
+
+        node.style.removeProperty("color");
+        node.style.removeProperty("background");
+        node.style.removeProperty("background-color");
+        node.style.removeProperty("caret-color");
+        node.style.removeProperty("-webkit-text-fill-color");
+      }
+
+      function buildReadablePreviewHtml(html, text) {
+        if (html && html.trim()) {
+          const template = document.createElement("template");
+          template.innerHTML = html;
+          template.content.querySelectorAll("*").forEach(resetProblematicStyles);
+          return template.innerHTML.trim();
+        }
+
+        if (text && text.trim()) {
+          return text
+            .split(/\n{2,}/)
+            .map(function (paragraph) {
+              const escaped = paragraph
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/\n/g, "<br>");
+              return "<p>" + escaped + "</p>";
+            })
+            .join("");
+        }
+
+        return "";
+      }
+
       function updateEmptyState() {
         if (surface.textContent.trim()) {
           surface.classList.remove("is-empty");
@@ -149,18 +205,22 @@
       function buildPayload(preferredHtml, preferredText) {
         const currentHtml = surface.innerHTML.trim();
         const currentText = surface.innerText.replace(/\u00a0/g, " ").trim();
-        const htmlValue =
+        const rawHtmlValue =
           preferredHtml && preferredHtml.trim()
             ? preferredHtml.trim()
-            : currentHtml || null;
+            : lastRawHtml || null;
+        const htmlValue = currentHtml || null;
         const textValue =
           preferredText && preferredText.trim()
             ? preferredText.trim()
             : currentText || null;
-        const hasContent = Boolean(textValue || stripHtml(htmlValue || ""));
+        const hasContent = Boolean(
+          textValue || stripHtml(rawHtmlValue || htmlValue || "")
+        );
 
         return {
           html: hasContent ? htmlValue : null,
+          raw_html: hasContent ? rawHtmlValue : null,
           text: hasContent ? textValue : null,
           has_content: hasContent,
         };
@@ -182,6 +242,7 @@
 
       function resetSurface(placeholder) {
         surface.innerHTML = "";
+        lastRawHtml = null;
         if (placeholder) {
           surface.setAttribute("data-placeholder", placeholder);
         }
@@ -192,13 +253,21 @@
         const clipboard = event.clipboardData || window.clipboardData;
         const html = clipboard ? clipboard.getData("text/html") : "";
         const text = clipboard ? clipboard.getData("text/plain") : "";
+        const previewHtml = buildReadablePreviewHtml(html, text);
+
+        event.preventDefault();
+        lastRawHtml = html && html.trim() ? html.trim() : null;
+        surface.innerHTML = previewHtml;
 
         window.setTimeout(function () {
-          publish(html, text);
+          publish(lastRawHtml, text);
         }, 0);
       });
 
       surface.addEventListener("input", function () {
+        if (!surface.textContent.trim()) {
+          lastRawHtml = null;
+        }
         publish(null, null);
       });
 

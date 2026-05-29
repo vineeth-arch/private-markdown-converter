@@ -226,13 +226,15 @@ def _render_result(filename: str, ok: bool, content: str, show_download: bool = 
 
 
 def _render_mode_switch() -> str:
-    selected_mode = st.radio(
+    st.markdown('<div class="convert-mode-switch">', unsafe_allow_html=True)
+    selected_mode = st.segmented_control(
         "Input mode",
-        [FILES_MODE, PASTE_MODE],
+        options=[FILES_MODE, PASTE_MODE],
         key=INPUT_MODE_KEY,
-        horizontal=True,
+        width="stretch",
         label_visibility="collapsed",
     )
+    st.markdown("</div>", unsafe_allow_html=True)
     previous_mode = st.session_state.get(PREVIOUS_INPUT_MODE_KEY)
     if previous_mode is None:
         st.session_state[PREVIOUS_INPUT_MODE_KEY] = selected_mode
@@ -358,7 +360,7 @@ def _render_paste_mode() -> None:
         st.caption("Paste content into the editor above to enable conversion.")
 
     if st.button("CONVERT", use_container_width=True, key="convert_pasted_rich_text", disabled=not has_content):
-        html_content = payload["html"]
+        html_content = payload["raw_html"] or payload["html"]
         text_content = payload["text"]
         started_at = perf_counter()
         ok, content = route_rich_text(html_content, text_content)
