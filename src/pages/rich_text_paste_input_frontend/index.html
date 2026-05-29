@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rich Text Paste Input</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Plus Jakarta Sans", sans-serif;
+        background: transparent;
+        color: #1e1e1e;
+      }
+
+      .frame {
+        background: #ffffff;
+        border: 3px solid #1e1e1e;
+        border-radius: 12px;
+        box-shadow: 5px 5px 0 #1e1e1e;
+        padding: 20px 22px 18px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #ff6b35;
+        text-transform: uppercase;
+      }
+
+      .title {
+        margin: 0 0 8px;
+        font-family: "Archivo Black", sans-serif;
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      .hint {
+        margin: 0 0 16px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #4a4a4a;
+      }
+
+      .surface {
+        min-height: 220px;
+        border: 3px dashed #1e1e1e;
+        border-radius: 10px;
+        padding: 16px;
+        font-size: 15px;
+        line-height: 1.6;
+        outline: none;
+        background: #fffaf2;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+      }
+
+      .surface:focus {
+        border-style: solid;
+      }
+
+      .surface.is-empty::before {
+        content: attr(data-placeholder);
+        color: #7a7a7a;
+      }
+
+      .status {
+        margin: 14px 0 0;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        color: #4a4a4a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <p class="eyebrow">Paste Mode</p>
+      <h2 class="title">Paste rich text from Docs, Word, or the web</h2>
+      <p class="hint">
+        The browser will pass along rich formatting when available and fall back
+        to plain text otherwise. Content stays local in this app.
+      </p>
+      <div
+        id="surface"
+        class="surface is-empty"
+        contenteditable="true"
+        spellcheck="true"
+        data-placeholder="Paste formatted content here"
+      ></div>
+      <p id="status" class="status">Waiting for pasted content.</p>
+    </div>
+
+    <script>
+      const surface = document.getElementById("surface");
+      const status = document.getElementById("status");
+
+      let lastResetNonce = null;
+
+      function sendMessageToStreamlitClient(type, data) {
+        const outData = Object.assign(
+          {
+            isStreamlitMessage: true,
+            type: type,
+          },
+          data
+        );
+        window.parent.postMessage(outData, "*");
+      }
+
+      function init() {
+        sendMessageToStreamlitClient("streamlit:componentReady", {
+          apiVersion: 1,
+        });
+      }
+
+      function setFrameHeight() {
+        sendMessageToStreamlitClient("streamlit:setFrameHeight", {
+          height: document.documentElement.scrollHeight,
+        });
+      }
+
+      function sendDataToPython(value) {
+        sendMessageToStreamlitClient("streamlit:setComponentValue", {
+          value: value,
+          dataType: "json",
+        });
+      }
+
+      function stripHtml(value) {
+        const container = document.createElement("div");
+        container.innerHTML = value;
+        return (container.textContent || container.innerText || "").trim();
+      }
+
+      function updateEmptyState() {
+        if (surface.textContent.trim()) {
+          surface.classList.remove("is-empty");
+        } else {
+          surface.classList.add("is-empty");
+        }
+      }
+
+      function buildPayload(preferredHtml, preferredText) {
+        const currentHtml = surface.innerHTML.trim();
+        const currentText = surface.innerText.replace(/\u00a0/g, " ").trim();
+        const htmlValue =
+          preferredHtml && preferredHtml.trim()
+            ? preferredHtml.trim()
+            : currentHtml || null;
+        const textValue =
+          preferredText && preferredText.trim()
+            ? preferredText.trim()
+            : currentText || null;
+        const hasContent = Boolean(textValue || stripHtml(htmlValue || ""));
+
+        return {
+          html: hasContent ? htmlValue : null,
+          text: hasContent ? textValue : null,
+          has_content: hasContent,
+        };
+      }
+
+      function syncStatus(payload) {
+        status.textContent = payload.has_content
+          ? "Content captured and ready to convert."
+          : "Waiting for pasted content.";
+      }
+
+      function publish(preferredHtml, preferredText) {
+        updateEmptyState();
+        const payload = buildPayload(preferredHtml, preferredText);
+        syncStatus(payload);
+        sendDataToPython(payload);
+        window.setTimeout(setFrameHeight, 0);
+      }
+
+      function resetSurface(placeholder) {
+        surface.innerHTML = "";
+        if (placeholder) {
+          surface.setAttribute("data-placeholder", placeholder);
+        }
+        publish(null, null);
+      }
+
+      surface.addEventListener("paste", function (event) {
+        const clipboard = event.clipboardData || window.clipboardData;
+        const html = clipboard ? clipboard.getData("text/html") : "";
+        const text = clipboard ? clipboard.getData("text/plain") : "";
+
+        window.setTimeout(function () {
+          publish(html, text);
+        }, 0);
+      });
+
+      surface.addEventListener("input", function () {
+        publish(null, null);
+      });
+
+      function onDataFromPython(event) {
+        if (event.data.type !== "streamlit:render") {
+          return;
+        }
+
+        const args = event.data.args || {};
+        const placeholder = args.placeholder || "Paste formatted content here";
+        const resetNonce = args.reset_nonce || 0;
+
+        if (lastResetNonce === null) {
+          lastResetNonce = resetNonce;
+          surface.setAttribute("data-placeholder", placeholder);
+          publish(null, null);
+          return;
+        }
+
+        if (resetNonce !== lastResetNonce) {
+          lastResetNonce = resetNonce;
+          resetSurface(placeholder);
+          return;
+        }
+
+        surface.setAttribute("data-placeholder", placeholder);
+        setFrameHeight();
+      }
+
+      window.addEventListener("message", onDataFromPython);
+      window.addEventListener("load", function () {
+        init();
+        window.setTimeout(setFrameHeight, 0);
+      });
+    </script>
+  </body>
+</html>

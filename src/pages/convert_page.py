@@ -10,7 +10,7 @@ from typing import Optional
 
 import streamlit as st
 
-from src.converters.router import route_file
+from src.converters.router import route_file, route_rich_text
 from src.db.history import add_record
 from src.db.password_profiles import (
     delete_profile,
@@ -24,6 +24,7 @@ from src.security.office_unlock import is_office_file_encrypted, unlock_office_f
 from src.security.password_vault import get_password, save_password
 from src.security.pdf_unlock import is_pdf_encrypted, unlock_pdf
 from src.security.temp_cleanup import cleanup_temp_file
+from src.pages.rich_text_paste_input import render_rich_text_paste_input
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,16 @@ MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 ENGINE_NAME = "markitdown"
 CONVERSION_RESULTS_KEY = "conversion_results"
 LAST_PASSWORD_PROFILE_KEY = "last_password_profile_id"
+INPUT_MODE_KEY = "convert_input_mode"
+PREVIOUS_INPUT_MODE_KEY = "previous_convert_input_mode"
+PASTE_RESET_NONCE_KEY = "paste_input_reset_nonce"
 PROTECTED_KIND_PDF = "pdf"
 PROTECTED_KIND_OFFICE = "office"
 PROTECTED_KIND_UNSUPPORTED = "unsupported"
 SUPPORTED_PROTECTED_KINDS = {PROTECTED_KIND_PDF, PROTECTED_KIND_OFFICE}
+FILES_MODE = "Files"
+PASTE_MODE = "Paste rich text"
+PASTED_FILENAME = "pasted-rich-text.html"
 
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
@@ -218,6 +225,25 @@ def _render_result(filename: str, ok: bool, content: str, show_download: bool = 
         st.error(f"Failed to convert {filename}: {content}")
 
 
+def _render_mode_switch() -> str:
+    selected_mode = st.radio(
+        "Input mode",
+        [FILES_MODE, PASTE_MODE],
+        key=INPUT_MODE_KEY,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    previous_mode = st.session_state.get(PREVIOUS_INPUT_MODE_KEY)
+    if previous_mode is None:
+        st.session_state[PREVIOUS_INPUT_MODE_KEY] = selected_mode
+    elif previous_mode != selected_mode:
+        clear_session_state()
+        st.session_state[PREVIOUS_INPUT_MODE_KEY] = selected_mode
+        st.session_state[PASTE_RESET_NONCE_KEY] = st.session_state.get(PASTE_RESET_NONCE_KEY, 0) + 1
+
+    return selected_mode
+
+
 def clear_session_state() -> None:
     """Clear Convert-page session data when uploads reset or the user navigates away."""
     st.session_state.pop(CONVERSION_RESULTS_KEY, None)
@@ -284,6 +310,294 @@ def _render_batch_downloads(results: dict[str, tuple[bool, str]]) -> None:
             use_container_width=True,
             key="download_merged_markdown",
         )
+
+
+def _render_paste_mode_intro() -> None:
+    st.markdown(
+        """
+        <div style="
+            background: #FFFFFF;
+            border: 3px solid #1E1E1E;
+            border-radius: 12px;
+            box-shadow: 5px 5px 0 #1E1E1E;
+            padding: 20px 24px;
+            margin: 16px 0;
+        ">
+            <p style="
+                font-family: 'Archivo Black', sans-serif;
+                font-size: 16px;
+                color: #1E1E1E;
+                margin: 0 0 8px 0;
+            ">PASTE RICH TEXT</p>
+            <p style="
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                font-size: 14px;
+                color: #4A4A4A;
+                margin: 0;
+                line-height: 1.5;
+            ">
+                Paste formatted text from Google Docs, Word, email, or a web page.
+                The app will keep rich HTML when the browser exposes it, then convert locally to Markdown.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_paste_mode() -> None:
+    _render_paste_mode_intro()
+    payload = render_rich_text_paste_input(
+        key=f"rich_text_paste_input_{st.session_state.get(PASTE_RESET_NONCE_KEY, 0)}",
+        placeholder="Paste formatted content here",
+        reset_nonce=st.session_state.get(PASTE_RESET_NONCE_KEY, 0),
+    )
+    has_content = payload["has_content"]
+
+    if not has_content:
+        st.caption("Paste content into the editor above to enable conversion.")
+
+    if st.button("CONVERT", use_container_width=True, key="convert_pasted_rich_text", disabled=not has_content):
+        html_content = payload["html"]
+        text_content = payload["text"]
+        started_at = perf_counter()
+        ok, content = route_rich_text(html_content, text_content)
+        file_size = len((html_content or text_content or "").encode("utf-8"))
+        _store_history_record(
+            filename=PASTED_FILENAME,
+            extension="html",
+            ok=ok,
+            duration_seconds=perf_counter() - started_at,
+            file_size=file_size,
+            message=content,
+        )
+        st.session_state[CONVERSION_RESULTS_KEY] = {PASTED_FILENAME: (ok, content)}
+
+    if CONVERSION_RESULTS_KEY not in st.session_state:
+        return
+
+    results = st.session_state[CONVERSION_RESULTS_KEY]
+    filename, (ok, content) = next(iter(results.items()))
+    _render_result(filename, ok, content)
+
+
+def _render_file_mode() -> None:
+    uploaded_files = st.file_uploader(
+        "Upload documents to convert",
+        type=ACCEPTED_EXTENSIONS,
+        accept_multiple_files=True,
+        help=f"Max {MAX_FILE_SIZE_MB}MB per file. All processing happens locally.",
+        label_visibility="collapsed",
+    )
+
+    if not uploaded_files:
+        clear_session_state()
+        _render_empty_state()
+        return
+
+    protection_kinds = {
+        index: _get_file_protection_kind(uploaded_file)
+        for index, uploaded_file in enumerate(uploaded_files)
+    }
+    _render_file_list(uploaded_files, protection_kinds)
+    password_inputs = _render_protected_files_section(uploaded_files, protection_kinds)
+
+    if st.button("CONVERT", use_container_width=True):
+        results: dict[str, tuple[bool, str]] = {}
+        with st.spinner("Converting files…"):
+            TEMP_DIR.mkdir(exist_ok=True)
+            for index, uploaded_file in enumerate(uploaded_files):
+                started_at = perf_counter()
+                suffix = Path(uploaded_file.name).suffix
+
+                if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                    error_message = f"File exceeds the {MAX_FILE_SIZE_MB}MB limit."
+                    results[uploaded_file.name] = (
+                        False,
+                        error_message,
+                    )
+                    _store_history_record(
+                        filename=uploaded_file.name,
+                        extension=suffix,
+                        ok=False,
+                        duration_seconds=perf_counter() - started_at,
+                        file_size=uploaded_file.size,
+                        message=error_message,
+                    )
+                    continue
+
+                temp_path = TEMP_DIR / f"{uuid.uuid4().hex}{suffix}"
+                unlocked_temp_path: Optional[Path] = None
+                try:
+                    temp_path.write_bytes(uploaded_file.getvalue())
+
+                    protection_kind = protection_kinds.get(index)
+                    if protection_kind == PROTECTED_KIND_UNSUPPORTED:
+                        error_message = "This password-protected file type is not supported yet. Please unlock it before upload."
+                        results[uploaded_file.name] = (False, error_message)
+                        _store_history_record(
+                            filename=uploaded_file.name,
+                            extension=suffix,
+                            ok=False,
+                            duration_seconds=perf_counter() - started_at,
+                            file_size=uploaded_file.size,
+                            message=error_message,
+                        )
+                        continue
+
+                    file_to_convert = temp_path
+                    if protection_kind in SUPPORTED_PROTECTED_KINDS:
+                        password_input = password_inputs.get(index, {})
+                        selected_profile_id = password_input.get("profile_id")
+                        password = ""
+                        if selected_profile_id is not None:
+                            stored_password = get_password(selected_profile_id)
+                            if stored_password is None:
+                                error_message = (
+                                    "The selected saved profile could not be read from the secure credential store."
+                                )
+                                results[uploaded_file.name] = (
+                                    False,
+                                    error_message,
+                                )
+                                _store_history_record(
+                                    filename=uploaded_file.name,
+                                    extension=suffix,
+                                    ok=False,
+                                    duration_seconds=perf_counter() - started_at,
+                                    file_size=uploaded_file.size,
+                                    message=error_message,
+                                )
+                                continue
+                            password = stored_password
+                        else:
+                            password = str(password_input.get("password") or "")
+
+                        if not password:
+                            error_message = "This file is password protected. Enter a password to convert it."
+                            results[uploaded_file.name] = (
+                                False,
+                                error_message,
+                            )
+                            _store_history_record(
+                                filename=uploaded_file.name,
+                                extension=suffix,
+                                ok=False,
+                                duration_seconds=perf_counter() - started_at,
+                                file_size=uploaded_file.size,
+                                message=error_message,
+                            )
+                            continue
+
+                        try:
+                            if protection_kind == PROTECTED_KIND_PDF:
+                                unlocked_temp_path = unlock_pdf(temp_path, password, TEMP_DIR)
+                            else:
+                                unlocked_temp_path = unlock_office_file(temp_path, password, TEMP_DIR)
+                        except ValueError:
+                            error_message = "The password appears to be incorrect. Please check and try again."
+                            results[uploaded_file.name] = (
+                                False,
+                                error_message,
+                            )
+                            _store_history_record(
+                                filename=uploaded_file.name,
+                                extension=suffix,
+                                ok=False,
+                                duration_seconds=perf_counter() - started_at,
+                                file_size=uploaded_file.size,
+                                message=error_message,
+                            )
+                            continue
+                        except RuntimeError as exc:
+                            error_message = str(exc)
+                            results[uploaded_file.name] = (False, error_message)
+                            _store_history_record(
+                                filename=uploaded_file.name,
+                                extension=suffix,
+                                ok=False,
+                                duration_seconds=perf_counter() - started_at,
+                                file_size=uploaded_file.size,
+                                message=error_message,
+                            )
+                            continue
+
+                        file_to_convert = unlocked_temp_path
+
+                    ok, content = route_file(file_to_convert, engine=ENGINE_NAME)
+                    results[uploaded_file.name] = (ok, content)
+                    if ok and protection_kind in SUPPORTED_PROTECTED_KINDS:
+                        password_input = password_inputs.get(index, {})
+                        selected_profile_id = password_input.get("profile_id")
+                        if selected_profile_id is not None:
+                            selected_profile_id = int(selected_profile_id)
+                            update_last_used(selected_profile_id)
+                            st.session_state[LAST_PASSWORD_PROFILE_KEY] = selected_profile_id
+                        elif password_input.get("save_after_success"):
+                            new_profile_name = str(password_input.get("new_profile_name") or "").strip()
+                            new_profile_pattern = str(password_input.get("new_profile_pattern") or "").strip()
+                            if new_profile_name:
+                                profile_id: int | None = None
+                                try:
+                                    profile_id = insert_profile(
+                                        new_profile_name,
+                                        new_profile_pattern or None,
+                                        "pending",
+                                        "pending",
+                                    )
+                                    save_password(profile_id, password)
+                                    st.session_state[LAST_PASSWORD_PROFILE_KEY] = profile_id
+                                except sqlite3.IntegrityError:
+                                    st.warning(
+                                        f"Converted {uploaded_file.name}, but the new profile name already exists."
+                                    )
+                                except Exception:
+                                    if profile_id is not None:
+                                        try:
+                                            delete_profile(profile_id)
+                                        except Exception:
+                                            pass
+                                    st.warning(
+                                        f"Converted {uploaded_file.name}, but the password profile could not be saved."
+                                    )
+
+                    logger.info(
+                        "Conversion %s: %s (%s)",
+                        "success" if ok else "failed",
+                        uploaded_file.name,
+                        suffix,
+                    )
+                    _store_history_record(
+                        filename=uploaded_file.name,
+                        extension=suffix,
+                        ok=ok,
+                        duration_seconds=perf_counter() - started_at,
+                        file_size=uploaded_file.size,
+                        message=content,
+                    )
+                finally:
+                    if unlocked_temp_path is not None:
+                        cleanup_temp_file(unlocked_temp_path)
+                    cleanup_temp_file(temp_path)
+
+        st.session_state[CONVERSION_RESULTS_KEY] = results
+
+    if CONVERSION_RESULTS_KEY not in st.session_state:
+        return
+
+    results = st.session_state[CONVERSION_RESULTS_KEY]
+    successful_files = _build_successful_files(results)
+    _render_batch_downloads(results)
+
+    if len(results) == 1:
+        filename, (ok, content) = next(iter(results.items()))
+        _render_result(filename, ok, content)
+    else:
+        show_individual_downloads = len(successful_files) < 2
+        for filename, (ok, content) in results.items():
+            label = f"✓ {filename}" if ok else f"✗ {filename}"
+            with st.expander(label, expanded=ok):
+                _render_result(filename, ok, content, show_download=show_individual_downloads)
 
 
 def _profile_option_label(profile: dict) -> str:
@@ -605,220 +919,9 @@ def _render_protected_files_section(
 def render(page_header) -> None:
     """Convert page — document-to-Markdown conversion."""
     page_header("CONVERT", "#FF6B35")
-
-    uploaded_files = st.file_uploader(
-        "Upload documents to convert",
-        type=ACCEPTED_EXTENSIONS,
-        accept_multiple_files=True,
-        help=f"Max {MAX_FILE_SIZE_MB}MB per file. All processing happens locally.",
-        label_visibility="collapsed",
-    )
-
-    if not uploaded_files:
-        clear_session_state()
-        _render_empty_state()
+    selected_mode = _render_mode_switch()
+    if selected_mode == PASTE_MODE:
+        _render_paste_mode()
         return
 
-    protection_kinds = {
-        index: _get_file_protection_kind(uploaded_file)
-        for index, uploaded_file in enumerate(uploaded_files)
-    }
-    _render_file_list(uploaded_files, protection_kinds)
-    password_inputs = _render_protected_files_section(uploaded_files, protection_kinds)
-
-    if st.button("CONVERT", use_container_width=True):
-        results: dict[str, tuple[bool, str]] = {}
-        with st.spinner("Converting files…"):
-            TEMP_DIR.mkdir(exist_ok=True)
-            for index, uploaded_file in enumerate(uploaded_files):
-                started_at = perf_counter()
-                suffix = Path(uploaded_file.name).suffix
-
-                if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                    error_message = f"File exceeds the {MAX_FILE_SIZE_MB}MB limit."
-                    results[uploaded_file.name] = (
-                        False,
-                        error_message,
-                    )
-                    _store_history_record(
-                        filename=uploaded_file.name,
-                        extension=suffix,
-                        ok=False,
-                        duration_seconds=perf_counter() - started_at,
-                        file_size=uploaded_file.size,
-                        message=error_message,
-                    )
-                    continue
-
-                temp_path = TEMP_DIR / f"{uuid.uuid4().hex}{suffix}"
-                unlocked_temp_path: Optional[Path] = None
-                try:
-                    temp_path.write_bytes(uploaded_file.getvalue())
-
-                    protection_kind = protection_kinds.get(index)
-                    if protection_kind == PROTECTED_KIND_UNSUPPORTED:
-                        error_message = "This password-protected file type is not supported yet. Please unlock it before upload."
-                        results[uploaded_file.name] = (False, error_message)
-                        _store_history_record(
-                            filename=uploaded_file.name,
-                            extension=suffix,
-                            ok=False,
-                            duration_seconds=perf_counter() - started_at,
-                            file_size=uploaded_file.size,
-                            message=error_message,
-                        )
-                        continue
-
-                    file_to_convert = temp_path
-                    if protection_kind in SUPPORTED_PROTECTED_KINDS:
-                        password_input = password_inputs.get(index, {})
-                        selected_profile_id = password_input.get("profile_id")
-                        password = ""
-                        if selected_profile_id is not None:
-                            stored_password = get_password(selected_profile_id)
-                            if stored_password is None:
-                                error_message = (
-                                    "The selected saved profile could not be read from the secure credential store."
-                                )
-                                results[uploaded_file.name] = (
-                                    False,
-                                    error_message,
-                                )
-                                _store_history_record(
-                                    filename=uploaded_file.name,
-                                    extension=suffix,
-                                    ok=False,
-                                    duration_seconds=perf_counter() - started_at,
-                                    file_size=uploaded_file.size,
-                                    message=error_message,
-                                )
-                                continue
-                            password = stored_password
-                        else:
-                            password = str(password_input.get("password") or "")
-
-                        if not password:
-                            error_message = "This file is password protected. Enter a password to convert it."
-                            results[uploaded_file.name] = (
-                                False,
-                                error_message,
-                            )
-                            _store_history_record(
-                                filename=uploaded_file.name,
-                                extension=suffix,
-                                ok=False,
-                                duration_seconds=perf_counter() - started_at,
-                                file_size=uploaded_file.size,
-                                message=error_message,
-                            )
-                            continue
-
-                        try:
-                            if protection_kind == PROTECTED_KIND_PDF:
-                                unlocked_temp_path = unlock_pdf(temp_path, password, TEMP_DIR)
-                            else:
-                                unlocked_temp_path = unlock_office_file(temp_path, password, TEMP_DIR)
-                        except ValueError:
-                            error_message = "The password appears to be incorrect. Please check and try again."
-                            results[uploaded_file.name] = (
-                                False,
-                                error_message,
-                            )
-                            _store_history_record(
-                                filename=uploaded_file.name,
-                                extension=suffix,
-                                ok=False,
-                                duration_seconds=perf_counter() - started_at,
-                                file_size=uploaded_file.size,
-                                message=error_message,
-                            )
-                            continue
-                        except RuntimeError as exc:
-                            error_message = str(exc)
-                            results[uploaded_file.name] = (False, error_message)
-                            _store_history_record(
-                                filename=uploaded_file.name,
-                                extension=suffix,
-                                ok=False,
-                                duration_seconds=perf_counter() - started_at,
-                                file_size=uploaded_file.size,
-                                message=error_message,
-                            )
-                            continue
-
-                        file_to_convert = unlocked_temp_path
-
-                    ok, content = route_file(file_to_convert, engine=ENGINE_NAME)
-                    results[uploaded_file.name] = (ok, content)
-                    if ok and protection_kind in SUPPORTED_PROTECTED_KINDS:
-                        password_input = password_inputs.get(index, {})
-                        selected_profile_id = password_input.get("profile_id")
-                        if selected_profile_id is not None:
-                            selected_profile_id = int(selected_profile_id)
-                            update_last_used(selected_profile_id)
-                            st.session_state[LAST_PASSWORD_PROFILE_KEY] = selected_profile_id
-                        elif password_input.get("save_after_success"):
-                            new_profile_name = str(password_input.get("new_profile_name") or "").strip()
-                            new_profile_pattern = str(password_input.get("new_profile_pattern") or "").strip()
-                            if new_profile_name:
-                                profile_id: int | None = None
-                                try:
-                                    profile_id = insert_profile(
-                                        new_profile_name,
-                                        new_profile_pattern or None,
-                                        "pending",
-                                        "pending",
-                                    )
-                                    save_password(profile_id, password)
-                                    st.session_state[LAST_PASSWORD_PROFILE_KEY] = profile_id
-                                except sqlite3.IntegrityError:
-                                    st.warning(
-                                        f"Converted {uploaded_file.name}, but the new profile name already exists."
-                                    )
-                                except Exception:
-                                    if profile_id is not None:
-                                        try:
-                                            delete_profile(profile_id)
-                                        except Exception:
-                                            pass
-                                    st.warning(
-                                        f"Converted {uploaded_file.name}, but the password profile could not be saved."
-                                    )
-
-                    logger.info(
-                        "Conversion %s: %s (%s)",
-                        "success" if ok else "failed",
-                        uploaded_file.name,
-                        suffix,
-                    )
-                    _store_history_record(
-                        filename=uploaded_file.name,
-                        extension=suffix,
-                        ok=ok,
-                        duration_seconds=perf_counter() - started_at,
-                        file_size=uploaded_file.size,
-                        message=content,
-                    )
-                finally:
-                    if unlocked_temp_path is not None:
-                        cleanup_temp_file(unlocked_temp_path)
-                    cleanup_temp_file(temp_path)
-
-        st.session_state[CONVERSION_RESULTS_KEY] = results
-
-    if CONVERSION_RESULTS_KEY not in st.session_state:
-        return
-
-    results = st.session_state[CONVERSION_RESULTS_KEY]
-    successful_files = _build_successful_files(results)
-    _render_batch_downloads(results)
-
-    if len(results) == 1:
-        filename, (ok, content) = next(iter(results.items()))
-        _render_result(filename, ok, content)
-    else:
-        show_individual_downloads = len(successful_files) < 2
-        for filename, (ok, content) in results.items():
-            label = f"✓ {filename}" if ok else f"✗ {filename}"
-            with st.expander(label, expanded=ok):
-                _render_result(filename, ok, content, show_download=show_individual_downloads)
+    _render_file_mode()
