@@ -117,6 +117,32 @@ Test with actual bank statement PDFs from:
 - [ ] History records which engine was used
 - [ ] Uninstalling an optional engine doesn't break the app
 
+## Phase 12: macOS launcher
+
+- [ ] Double-click "Start Private Markdown Converter.command", app opens in browser
+- [ ] No Terminal window required or visible
+- [ ] App loads at localhost:8501 with full neo-brutalist UI
+- [ ] Run bash build-app.sh, "Private Markdown Converter.app" appears in project root
+- [ ] Run bash build-app.sh, "Stop Private Markdown Converter.app" appears in project root
+- [ ] Right-click -> Open on first launch, Gatekeeper warning appears and can be dismissed
+- [ ] Single click on subsequent launches, app opens in browser with no prompts
+- [ ] Drag app to Dock, Dock click launches app correctly
+- [ ] Drag app to Applications folder, launches correctly from there
+- [ ] If project folder is moved, rebuild with build-app.sh and confirm it still works
+- [ ] Password profile using macOS Keychain works when launched from the .app
+      (critical: confirms Keychain sandbox is not broken by the applet wrapper)
+- [ ] Convert a non-encrypted PDF - works correctly
+- [ ] Convert a password-protected PDF using a saved profile - works correctly
+      (This specifically tests that keyring/Keychain access is not broken by the launcher. If this fails, the launcher is breaking the Keychain sandbox.)
+- [ ] Double-click stop.sh, Streamlit process stops
+- [ ] Double-click "Stop Private Markdown Converter.app", process stops
+- [ ] macOS notification appears confirming the app stopped
+- [ ] Browser shows connection refused at localhost:8501 after stopping
+- [ ] After stop, browser shows "This site can't be reached" at localhost:8501
+- [ ] Double-click launcher again, app starts fresh
+- [ ] Clicking the launch app again after stopping starts a fresh session
+- [ ] Double-clicking launcher while app is already running opens browser only, does not start a second Streamlit instance
+
 ---
 
 ## Security smoke test (run periodically)

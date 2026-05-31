@@ -15,4 +15,8 @@ dist/
 build/
 .pytest_cache/
 .streamlit/*
+.streamlit/app.pid
 !.streamlit/config.toml
+Private Markdown Converter.app/
+Stop Private Markdown Converter.app/
+assets/icon.iconset/
