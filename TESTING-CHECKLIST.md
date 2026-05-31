@@ -143,6 +143,21 @@ Test with actual bank statement PDFs from:
 - [ ] Clicking the launch app again after stopping starts a fresh session
 - [ ] Double-clicking launcher while app is already running opens browser only, does not start a second Streamlit instance
 
+## Distribution readiness
+
+- [ ] Clean-machine install succeeds without requiring the user to create a Python environment manually
+- [ ] App launches without Terminal after installation
+- [ ] Browser opens automatically on first successful launch
+- [ ] Repeated launches do not create duplicate local servers
+- [ ] Stop action shuts the local service down cleanly after installation
+- [ ] Encrypted PDF conversion works in the packaged install
+- [ ] Saved password profile works in the packaged install
+- [ ] No passwords appear in logs, config files, or SQLite after packaged use
+- [ ] No original files, decrypted files, or Markdown content persist after packaged use
+- [ ] App still launches correctly after OS reboot
+- [ ] Upgrade path between packaged versions is tested
+- [ ] Signing/notarization flow is validated before public macOS distribution
+
 ---
 
 ## Security smoke test (run periodically)

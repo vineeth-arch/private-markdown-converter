@@ -346,3 +346,19 @@ Use the packaging prompt from the original plan. Key addition:
 ```
 Additional constraint: test that keyring (macOS Keychain access) works correctly when the app is launched from the packaged launcher, not just from terminal. Some packaging approaches break keychain access.
 ```
+
+---
+
+## Post-Phase 12: User-downloadable distribution readiness
+
+After launcher packaging is stable, the next product milestone is a **desktop-installed local web app** release for non-technical users.
+
+Priority work:
+
+- replace repo-clone setup with a downloadable packaged release
+- bundle runtime dependencies so end users do not need Python or `pip`
+- add first-run checks for writable local directories, browser launch, and credential-store access
+- define a repeatable release workflow for building, smoke testing, and publishing app bundles
+- reduce Gatekeeper friction through signing and notarization when ready
+
+Do not reinterpret this as a hosted SaaS phase. The intended direction remains local-first and privacy-preserving.
