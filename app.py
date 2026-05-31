@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 import streamlit as st
@@ -27,6 +28,14 @@ def inject_custom_css() -> None:
     css_path = Path("src/styles/theme.css")
     if css_path.exists():
         st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
+
+
+def load_sidebar_brand_artwork_data_uri() -> str:
+    artwork_path = Path("assets/final-podcast-artwork.svg")
+    if not artwork_path.exists():
+        return ""
+    encoded = base64.b64encode(artwork_path.read_bytes()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
 def inject_keepalive() -> None:
@@ -79,6 +88,7 @@ def page_header(title: str, color: str) -> None:
 
 inject_custom_css()
 inject_keepalive()
+sidebar_brand_artwork_uri = load_sidebar_brand_artwork_data_uri()
 
 if "startup_done" not in st.session_state:
     cleanup_temp_dir()
@@ -96,7 +106,7 @@ NAV_ITEMS = [
 with st.sidebar:
     st.markdown(
         """
-        <div style="padding: 16px 0 24px 0;">
+        <div class="sidebar-brand-header">
             <p style="
                 font-family: 'Archivo Black', sans-serif;
                 font-size: 18px;
@@ -119,6 +129,23 @@ with st.sidebar:
         "Navigation",
         NAV_ITEMS,
         label_visibility="collapsed",
+    )
+
+    st.markdown(
+        f"""
+        <div class="sidebar-brand-signoff">
+            <div class="sidebar-brand-signoff__artwork-wrap" aria-hidden="true">
+                <img class="sidebar-brand-signoff__artwork" src="{sidebar_brand_artwork_uri}" alt="Design Innsaeit artwork" />
+            </div>
+            <div class="sidebar-brand-signoff__text">
+                <p class="sidebar-brand-signoff__title">designed by Design Innsaeit</p>
+                <p>Brand Strategy and Packaging Design Studio</p>
+                <p>www.designinnsaeit.com</p>
+                <p>vineeth@designinnsaeit.com</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 PAGE_MAP = {

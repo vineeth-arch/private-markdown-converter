@@ -2,6 +2,8 @@
 
 A desktop-installed local web app for macOS that converts documents and password-protected PDFs into clean Markdown. It runs a local service on your machine, opens in the browser on `localhost`, and keeps files on your device.
 
+This is **not yet** a standalone downloadable installer for non-technical users. The current install path still requires local Python setup, dependency installation, and building the `.app` from this repo.
+
 ## Privacy principles
 
 - No cloud uploads. All processing happens locally.
@@ -10,16 +12,49 @@ A desktop-installed local web app for macOS that converts documents and password
 - PDF passwords are stored only in macOS Keychain, never in the app database.
 - The history log contains filenames and timestamps only. No document content.
 
-## Product direction
+## Install the macOS app
 
-The intended product direction is a **downloadable local app**, not a hosted SaaS web app.
+**Current requirements:** macOS, Python 3.11+
 
-- users install it like a normal desktop app
-- the app launches a local service and opens a browser UI
-- sensitive files never need to pass through our servers
-- saved passwords remain in the user's local OS credential store
+This app is a **desktop-installed local web app**. You build the app bundle from this repo, install it into `Applications`, and it launches a local browser UI on `http://localhost:8501`.
 
-See [DISTRIBUTION-ROADMAP.md](/Users/vineethnair/Vibe%20Code/private-markdown-converter/DISTRIBUTION-ROADMAP.md) for the packaging and release roadmap.
+1. Clone the repo:
+   ```bash
+   git clone <repo-url>
+   cd private-markdown-converter
+   ```
+2. Create the virtual environment:
+   ```bash
+   python3 -m venv .venv
+   ```
+3. Activate it:
+   ```bash
+   source .venv/bin/activate
+   ```
+4. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. Make the launcher and build scripts executable:
+   ```bash
+   chmod +x launch.sh stop.sh build-app.sh make-icon.sh "Start Private Markdown Converter.command"
+   ```
+6. Optional: generate a custom app icon from a PNG:
+   ```bash
+   bash make-icon.sh path/to/your-image.png
+   ```
+7. Build the macOS app:
+   ```bash
+   bash build-app.sh
+   ```
+8. Drag `Private Markdown Converter.app` into your `Applications` folder.
+9. First launch only: right-click `Private Markdown Converter.app` and choose `Open`.
+10. After that, launch it normally with a single click from `Applications` or the Dock.
+
+Important packaging constraint:
+- the `.app` can live in `Applications`
+- the project folder itself must stay where it is
+- if the project folder moves, rerun `bash build-app.sh` and replace the installed app
 
 ## Supported file types
 
@@ -37,98 +72,64 @@ See [DISTRIBUTION-ROADMAP.md](/Users/vineethnair/Vibe%20Code/private-markdown-co
 | Images | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp` |
 | ZIP | `.zip` (contents converted individually) |
 
-## First-time setup
+## Launch and use
 
-**Requirements:** Python 3.11+, macOS
+When you launch `Private Markdown Converter.app`:
 
-1. Clone the repo
-   ```bash
-   git clone <repo-url>
-   cd private-markdown-converter
-   ```
-2. Create a virtual environment:
-   ```bash
-   python3 -m venv .venv
-   ```
-3. Activate it:
-   ```bash
-   source .venv/bin/activate
-   ```
-4. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-5. Make launchers executable (one time only):
-   ```bash
-   chmod +x launch.sh stop.sh build-app.sh make-icon.sh "Start Private Markdown Converter.command"
-   ```
+- it starts the local service if it is not already running
+- it opens your browser to `http://localhost:8501`
+- if the app is already running, launching it again should reopen the browser instead of starting a second server
 
-## Launching the app
+First-launch Gatekeeper note:
+- on the first run, macOS may warn that the app is from an unnotarized source
+- use right-click -> `Open` once to approve it
 
-Double-click: `Start Private Markdown Converter.command`
+## Stop the app
 
-Or from Terminal:
+Quit `Private Markdown Converter.app` from the Dock or app menu to stop the local service.
 
-```bash
-bash launch.sh
-```
-
-The app opens at `http://localhost:8501` in your browser.
-
-## Stopping the app
-
-Double-click: `stop.sh`
-
-Or from Terminal:
+Fallback maintenance path:
 
 ```bash
 bash stop.sh
 ```
 
-## First-launch Gatekeeper warning
+`stop.sh` is useful if the local service is still running and you want to stop it from Terminal.
 
-On first double-click, macOS may block the file because it is from an unnotarized source. Right-click the file and select Open, then confirm. You only need to do this once per file.
+## Rebuild after moving or updating the project
 
-## Creating the macOS app launcher
-
-After completing first-time setup and confirming `launch.sh` works:
-
-### Option A: Use the default icon (fastest)
+Rerun this whenever you move the project folder or want a fresh app build after updates:
 
 ```bash
 bash build-app.sh
 ```
 
-### Option B: Use a custom icon
+The generated `.app` contains helper scripts that point back to the current repo path, so moving the project without rebuilding will break app launching.
 
-1. Prepare a PNG image, at least 1024x1024 pixels
-2. Convert it to `.icns` format:
-   ```bash
-   bash make-icon.sh path/to/your-image.png
-   ```
-3. Build the apps:
-   ```bash
-   bash build-app.sh
-   ```
+## Developer setup and alternate launch paths
 
-### Install the apps
+If you want to run the app without the packaged `.app`:
 
-After `build-app.sh` completes:
+- double-click `Start Private Markdown Converter.command`
+- or run:
+  ```bash
+  bash launch.sh
+  ```
 
-1. Drag `Private Markdown Converter.app` to your Applications folder or Dock
-2. Drag `Stop Private Markdown Converter.app` to your Applications folder or Dock
-3. First launch only: right-click -> Open (Gatekeeper warning, one time)
-4. From then on: single click or Dock tap launches the app
+This is the developer-oriented path. The main install flow for normal usage is the built `.app` in `Applications`.
 
-### Rebuilding after updates
+## Product direction and roadmap
 
-If you move the project folder or pull significant updates, re-run:
+The intended product direction is still a **downloadable local app**, not a hosted SaaS web app.
 
-```bash
-bash build-app.sh
-```
+- users install it like a normal desktop app
+- the app launches a local service and opens a browser UI
+- sensitive files never need to pass through our servers
+- saved passwords remain in the user's local OS credential store
 
-The generated `.app` bundles contain the current path back to `launch.sh` and `stop.sh`. If the project moves, rebuild them.
+Today, that install flow still depends on local Python and dependency setup. A future bundled-runtime release would remove the need for users to manage `venv`, `pip`, and Python manually.
+
+See [DISTRIBUTION-ROADMAP.md](/Users/vineethnair/Vibe%20Code/private-markdown-converter/DISTRIBUTION-ROADMAP.md) for the packaging and release roadmap.
 
 ## Distribution roadmap
 
