@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$PATH"
+
 PID_FILE=".streamlit/app.pid"
 HEALTH_URL="http://localhost:8501/_stcore/health"
 APP_URL="http://localhost:8501"
