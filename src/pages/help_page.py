@@ -13,6 +13,8 @@ SUPPORTED_FILE_TYPES = [
     ("XML", ".xml", "XML documents", "markitdown"),
     ("EPUB", ".epub", "E-book format", "markitdown"),
     ("Images", ".jpg / .jpeg / .png / .gif", "Image files", "markitdown"),
+    ("Audio", ".mp3 / .wav / .m4a / .ogg / .flac", "Audio files require ffmpeg", "markitdown"),
+    ("YouTube URLs", "https://youtube.com / https://youtu.be", "Transcript extraction requires yt-dlp and ffmpeg", "youtube"),
     ("ZIP", ".zip", "Archives (contents converted individually)", "markitdown"),
     ("C/C++ Headers", ".h / .hpp / .hh / .hxx", "Extracts /** */ doc comments to Markdown", "h2md"),
     ("C/C++ Source", ".cpp / .cc / .cxx / .c", "Doc comments or full fenced code block fallback", "h2md"),
@@ -26,6 +28,11 @@ _ENGINE_BADGE = {
     ),
     "h2md": (
         "background: #FF6B35; color: white; display: inline-block; padding: 2px 10px;"
+        " border: 2px solid #1E1E1E; border-radius: 6px; font-family: 'JetBrains Mono', monospace;"
+        " font-size: 11px; font-weight: 600;"
+    ),
+    "youtube": (
+        "background: #FFD23F; color: #1E1E1E; display: inline-block; padding: 2px 10px;"
         " border: 2px solid #1E1E1E; border-radius: 6px; font-family: 'JetBrains Mono', monospace;"
         " font-size: 11px; font-weight: 600;"
     ),
@@ -59,7 +66,7 @@ def render(page_header) -> None:
     rows_html = ""
     for i, (name, ext, note, engine) in enumerate(SUPPORTED_FILE_TYPES):
         bg = "#FFFFFF" if i % 2 == 0 else "#FFF8F0"
-        engine_label = "MarkItDown" if engine == "markitdown" else "h2md"
+        engine_label = {"markitdown": "MarkItDown", "h2md": "h2md", "youtube": "YouTube"}.get(engine, engine)
         rows_html += f"""
         <tr style="background: {bg}; border-bottom: 2px solid #1E1E1E;">
             <td style="padding: 10px 16px; font-family: 'Archivo Black', sans-serif; font-size: 14px;">{name}</td>
@@ -86,6 +93,8 @@ def render(page_header) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    st.warning("YouTube and audio conversion requires yt-dlp and ffmpeg. Install with: brew install yt-dlp ffmpeg")
 
     _PRIVACY_ITEMS = [
         ("#3A86FF", "No Cloud Upload", "Everything stays on your machine. No files are sent anywhere."),

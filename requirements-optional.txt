@@ -1,0 +1,2 @@
+# System dependencies also required: brew install yt-dlp ffmpeg
+yt-dlp

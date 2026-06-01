@@ -3,21 +3,53 @@ from pathlib import Path
 import re
 import uuid
 
-from src.converters import cpp_engine, markitdown_engine
+from src.converters import audio_engine, cpp_engine, markitdown_engine, youtube_engine
 from src.security.temp_cleanup import cleanup_temp_file
 
+YOUTUBE_PREFIXES = ("https://youtube.com", "https://youtu.be", "https://www.youtube.com")
+YOUTUBE_EXTENSION = "youtube"
+YOUTUBE_ENGINE = "youtube"
+YOUTUBE_HISTORY_FILENAME_LIMIT = 200
+YOUTUBE_DOWNLOAD_FILENAME = "youtube-transcript.md"
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
 CPP_EXTENSIONS = {".h", ".hpp", ".hh", ".hxx", ".cpp", ".cc", ".cxx", ".c"}
 TEMP_DIR = Path("temp")
 
 
-def route_file(file_path: Path, engine: str = "markitdown") -> tuple[bool, str]:
+def is_youtube_input(value: object) -> bool:
+    """Return True when value is a supported YouTube URL string."""
+    return isinstance(value, str) and value.strip().startswith(YOUTUBE_PREFIXES)
+
+
+def route_youtube(url: str) -> tuple[bool, str]:
+    """Route a YouTube URL through the YouTube conversion engine."""
+    markdown, status, error_message = youtube_engine.convert_youtube(url)
+    if status == "success":
+        return True, markdown
+    if status == "partial" and markdown:
+        return True, markdown
+    return False, error_message
+
+
+def route_file(file_path: Path | str, engine: str = "markitdown") -> tuple[bool, str]:
     """Route file to the appropriate conversion engine.
 
     Returns (True, markdown) on success or (False, error_message) on failure.
     The engine parameter is a forward-compatibility hook for Phase 7/8 engines.
     """
+    if is_youtube_input(file_path):
+        return route_youtube(str(file_path))
+
+    file_path = Path(file_path)
     if file_path.suffix.lower() in CPP_EXTENSIONS:
         content = cpp_engine.convert_file(file_path)
+    elif file_path.suffix.lower() in AUDIO_EXTENSIONS:
+        markdown, status, error_message = audio_engine.convert_audio(file_path)
+        if status == "success":
+            return True, markdown
+        if status == "partial" and markdown:
+            return True, markdown
+        return False, error_message
     else:
         content = markitdown_engine.convert_file(file_path)
     if content.startswith("[ERROR]"):

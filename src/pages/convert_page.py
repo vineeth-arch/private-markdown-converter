@@ -10,7 +10,15 @@ from typing import Optional
 
 import streamlit as st
 
-from src.converters.router import route_file, route_rich_text
+from src.converters.router import (
+    YOUTUBE_DOWNLOAD_FILENAME,
+    YOUTUBE_ENGINE,
+    YOUTUBE_EXTENSION,
+    YOUTUBE_HISTORY_FILENAME_LIMIT,
+    route_file,
+    route_rich_text,
+    route_youtube,
+)
 from src.db.history import add_record
 from src.db.password_profiles import (
     delete_profile,
@@ -32,10 +40,12 @@ TEMP_DIR = Path("temp")
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "100"))
 ENGINE_NAME = "markitdown"
 CONVERSION_RESULTS_KEY = "conversion_results"
+CONVERSION_RESULT_SOURCE_KEY = "conversion_result_source"
 LAST_PASSWORD_PROFILE_KEY = "last_password_profile_id"
 INPUT_MODE_KEY = "convert_input_mode"
 PREVIOUS_INPUT_MODE_KEY = "previous_convert_input_mode"
 PASTE_RESET_NONCE_KEY = "paste_input_reset_nonce"
+YOUTUBE_URL_INPUT_KEY = "youtube_url_input"
 PROTECTED_KIND_PDF = "pdf"
 PROTECTED_KIND_OFFICE = "office"
 PROTECTED_KIND_UNSUPPORTED = "unsupported"
@@ -43,10 +53,18 @@ SUPPORTED_PROTECTED_KINDS = {PROTECTED_KIND_PDF, PROTECTED_KIND_OFFICE}
 FILES_MODE = "Files"
 PASTE_MODE = "Paste rich text"
 PASTED_FILENAME = "pasted-rich-text.html"
+SOURCE_FILES = "files"
+SOURCE_PASTE = "paste"
+SOURCE_YOUTUBE = "youtube"
+DEPENDENCY_INSTALL_MESSAGES = {
+    "yt-dlp is not installed. Run: brew install yt-dlp",
+    "ffmpeg is not installed. Run: brew install ffmpeg",
+}
 
 ACCEPTED_EXTENSIONS = [
     "pdf", "docx", "pptx", "xlsx", "html", "csv",
     "json", "xml", "epub", "png", "jpg", "jpeg", "gif", "zip",
+    "mp3", "wav", "m4a", "ogg", "flac",
     "h", "hpp", "hh", "hxx", "cpp", "cc", "cxx", "c",
 ]
 
@@ -58,19 +76,25 @@ def _store_history_record(
     duration_seconds: float,
     file_size: int,
     message: str,
+    engine_name: str = ENGINE_NAME,
+    status: str | None = None,
+    output_name: str | None = None,
 ) -> None:
     """Persist metadata-only conversion history without affecting the UI flow."""
     safe_extension = extension.lstrip(".").lower() or "file"
-    output_name = f"{Path(filename).stem}.md" if ok else None
+    safe_status = status or ("success" if ok else "failed")
+    safe_output_name = output_name if ok else None
+    if ok and safe_output_name is None:
+        safe_output_name = f"{Path(filename).stem}.md"
     error_message = None if ok else message
 
     try:
         add_record(
             filename=filename,
             extension=safe_extension,
-            engine=ENGINE_NAME,
-            status="success" if ok else "failed",
-            output_name=output_name,
+            engine=engine_name,
+            status=safe_status,
+            output_name=safe_output_name,
             file_size=file_size,
             duration=round(duration_seconds, 3),
             error_msg=error_message,
@@ -99,7 +123,7 @@ def _render_empty_state() -> None:
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:24px;">
                 <div><p style="{col_label}">Documents</p>{badges(["PDF","DOCX","PPTX","XLSX","EPUB"])}</div>
                 <div><p style="{col_label}">Web &amp; Data</p>{badges(["HTML","CSV","JSON","XML"])}</div>
-                <div><p style="{col_label}">Images</p>{badges(["PNG","JPG","JPEG","GIF"])}</div>
+                <div><p style="{col_label}">Images &amp; Audio</p>{badges(["PNG","JPG","JPEG","GIF","MP3","WAV","M4A","OGG","FLAC"])}</div>
                 <div><p style="{col_label}">Code &amp; Archives</p>{badges(["H","HPP","HXX","CPP","CXX","C","ZIP"])}</div>
             </div>
             <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;color:#4A4A4A;margin:0;text-align:center;border-top:2px solid #1E1E1E;padding-top:16px;">
@@ -207,7 +231,8 @@ def _render_file_list(uploaded_files: list, protection_kinds: dict[int, str | No
 
 
 def _render_result(filename: str, ok: bool, content: str, show_download: bool = True) -> None:
-    stem = Path(filename).stem
+    stem = Path(filename).stem or "converted"
+    download_name = YOUTUBE_DOWNLOAD_FILENAME if filename == YOUTUBE_DOWNLOAD_FILENAME else f"{stem}.md"
     if ok:
         st.success(f"Converted: {filename}")
         with st.expander("Rendered preview", expanded=True):
@@ -217,12 +242,15 @@ def _render_result(filename: str, ok: bool, content: str, show_download: bool = 
             st.download_button(
                 label="DOWNLOAD .MD",
                 data=content,
-                file_name=f"{stem}.md",
+                file_name=download_name,
                 mime="text/markdown",
                 key=f"dl_{filename}",
             )
     else:
-        st.error(f"Failed to convert {filename}: {content}")
+        if content in DEPENDENCY_INSTALL_MESSAGES:
+            st.warning(content)
+        else:
+            st.error(f"Failed to convert {filename}: {content}")
 
 
 def _render_mode_switch() -> str:
@@ -249,6 +277,7 @@ def _render_mode_switch() -> str:
 def clear_session_state() -> None:
     """Clear Convert-page session data when uploads reset or the user navigates away."""
     st.session_state.pop(CONVERSION_RESULTS_KEY, None)
+    st.session_state.pop(CONVERSION_RESULT_SOURCE_KEY, None)
 
 
 def _build_successful_files(results: dict[str, tuple[bool, str]]) -> dict[str, str]:
@@ -374,6 +403,7 @@ def _render_paste_mode() -> None:
             message=content,
         )
         st.session_state[CONVERSION_RESULTS_KEY] = {PASTED_FILENAME: (ok, content)}
+        st.session_state[CONVERSION_RESULT_SOURCE_KEY] = SOURCE_PASTE
 
     if CONVERSION_RESULTS_KEY not in st.session_state:
         return
@@ -391,10 +421,15 @@ def _render_file_mode() -> None:
         help=f"Max {MAX_FILE_SIZE_MB}MB per file. All processing happens locally.",
         label_visibility="collapsed",
     )
+    _render_youtube_url_section()
 
     if not uploaded_files:
-        clear_session_state()
-        _render_empty_state()
+        if st.session_state.get(CONVERSION_RESULT_SOURCE_KEY) != SOURCE_YOUTUBE:
+            clear_session_state()
+            _render_empty_state()
+        elif CONVERSION_RESULTS_KEY in st.session_state:
+            filename, (ok, content) = next(iter(st.session_state[CONVERSION_RESULTS_KEY].items()))
+            _render_result(filename, ok, content)
         return
 
     protection_kinds = {
@@ -583,13 +618,15 @@ def _render_file_mode() -> None:
                     cleanup_temp_file(temp_path)
 
         st.session_state[CONVERSION_RESULTS_KEY] = results
+        st.session_state[CONVERSION_RESULT_SOURCE_KEY] = SOURCE_FILES
 
     if CONVERSION_RESULTS_KEY not in st.session_state:
         return
 
     results = st.session_state[CONVERSION_RESULTS_KEY]
     successful_files = _build_successful_files(results)
-    _render_batch_downloads(results)
+    if st.session_state.get(CONVERSION_RESULT_SOURCE_KEY) != SOURCE_YOUTUBE:
+        _render_batch_downloads(results)
 
     if len(results) == 1:
         filename, (ok, content) = next(iter(results.items()))
@@ -600,6 +637,67 @@ def _render_file_mode() -> None:
             label = f"✓ {filename}" if ok else f"✗ {filename}"
             with st.expander(label, expanded=ok):
                 _render_result(filename, ok, content, show_download=show_individual_downloads)
+
+
+def _render_youtube_url_section() -> None:
+    st.markdown(
+        """
+        <div style="
+            background: #FFD23F;
+            border: 3px solid #1E1E1E;
+            border-radius: 12px;
+            box-shadow: 5px 5px 0 #1E1E1E;
+            padding: 20px 24px;
+            margin: 24px 0 16px 0;
+        ">
+            <p style="
+                font-family: 'Archivo Black', sans-serif;
+                font-size: 18px;
+                color: #1E1E1E;
+                margin: 0 0 8px 0;
+            ">YOUTUBE URL</p>
+            <p style="
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                font-size: 14px;
+                color: #1E1E1E;
+                margin: 0;
+                line-height: 1.5;
+            ">Paste a YouTube URL to extract the transcript as Markdown</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    input_col, button_col = st.columns([3, 1])
+    with input_col:
+        youtube_url = st.text_input(
+            "YouTube URL",
+            key=YOUTUBE_URL_INPUT_KEY,
+            placeholder="https://www.youtube.com/watch?v=...",
+            label_visibility="collapsed",
+        )
+    with button_col:
+        convert_url = st.button("CONVERT URL", use_container_width=True)
+
+    if not convert_url:
+        return
+
+    started_at = perf_counter()
+    ok, content = route_youtube(youtube_url)
+    safe_url = youtube_url.strip()[:YOUTUBE_HISTORY_FILENAME_LIMIT]
+    if not safe_url:
+        safe_url = "youtube-url"
+    _store_history_record(
+        filename=safe_url,
+        extension=YOUTUBE_EXTENSION,
+        ok=ok,
+        duration_seconds=perf_counter() - started_at,
+        file_size=0,
+        message=content,
+        engine_name=YOUTUBE_ENGINE,
+        output_name=YOUTUBE_DOWNLOAD_FILENAME,
+    )
+    st.session_state[CONVERSION_RESULTS_KEY] = {YOUTUBE_DOWNLOAD_FILENAME: (ok, content)}
+    st.session_state[CONVERSION_RESULT_SOURCE_KEY] = SOURCE_YOUTUBE
 
 
 def _profile_option_label(profile: dict) -> str:
