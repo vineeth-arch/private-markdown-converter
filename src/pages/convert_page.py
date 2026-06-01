@@ -56,6 +56,7 @@ PASTED_FILENAME = "pasted-rich-text.html"
 SOURCE_FILES = "files"
 SOURCE_PASTE = "paste"
 SOURCE_YOUTUBE = "youtube"
+YOUTUBE_MERGED_FILENAME = "transcript markdown.md"
 DEPENDENCY_INSTALL_MESSAGES = {
     "yt-dlp is not installed. Run: brew install yt-dlp",
     "ffmpeg is not installed. Run: brew install ffmpeg",
@@ -343,6 +344,44 @@ def _render_batch_downloads(results: dict[str, tuple[bool, str]]) -> None:
         )
 
 
+def _render_youtube_batch_downloads(results: dict[str, tuple[bool, str]]) -> None:
+    successful_files = _build_successful_files(results)
+    file_count = len(successful_files)
+    if file_count < 2:
+        return
+
+    today = date.today().isoformat()
+    zip_path: Optional[Path] = None
+    try:
+        zip_path = create_zip(successful_files, TEMP_DIR)
+        zip_bytes = zip_path.read_bytes()
+    finally:
+        if zip_path is not None:
+            cleanup_zip(zip_path)
+
+    left_col, right_col = st.columns([1, 1])
+
+    with left_col:
+        st.download_button(
+            label=f"Download YouTube ZIP ({file_count} transcripts)",
+            data=zip_bytes,
+            file_name=f"youtube-transcripts-{today}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="download_youtube_zip_export",
+        )
+
+    with right_col:
+        st.download_button(
+            label="Download merged YouTube Markdown",
+            data=merge_to_markdown(successful_files),
+            file_name=YOUTUBE_MERGED_FILENAME,
+            mime="text/markdown",
+            use_container_width=True,
+            key="download_youtube_merged_markdown",
+        )
+
+
 def _render_paste_mode_intro() -> None:
     st.markdown(
         """
@@ -625,14 +664,19 @@ def _render_file_mode() -> None:
 
     results = st.session_state[CONVERSION_RESULTS_KEY]
     successful_files = _build_successful_files(results)
-    if st.session_state.get(CONVERSION_RESULT_SOURCE_KEY) != SOURCE_YOUTUBE:
+    if st.session_state.get(CONVERSION_RESULT_SOURCE_KEY) == SOURCE_YOUTUBE:
+        _render_youtube_batch_downloads(results)
+    else:
         _render_batch_downloads(results)
 
     if len(results) == 1:
         filename, (ok, content) = next(iter(results.items()))
         _render_result(filename, ok, content)
     else:
-        show_individual_downloads = len(successful_files) < 2
+        show_individual_downloads = (
+            st.session_state.get(CONVERSION_RESULT_SOURCE_KEY) == SOURCE_YOUTUBE
+            or len(successful_files) < 2
+        )
         for filename, (ok, content) in results.items():
             label = f"✓ {filename}" if ok else f"✗ {filename}"
             with st.expander(label, expanded=ok):
@@ -655,48 +699,59 @@ def _render_youtube_url_section() -> None:
                 font-size: 18px;
                 color: #1E1E1E;
                 margin: 0 0 8px 0;
-            ">YOUTUBE URL</p>
+            ">YOUTUBE URLS</p>
             <p style="
                 font-family: 'Plus Jakarta Sans', sans-serif;
                 font-size: 14px;
                 color: #1E1E1E;
                 margin: 0;
                 line-height: 1.5;
-            ">Paste a YouTube URL to extract the transcript as Markdown</p>
+            ">Paste one YouTube URL per line to extract transcripts as Markdown</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    input_col, button_col = st.columns([3, 1])
-    with input_col:
-        youtube_url = st.text_input(
-            "YouTube URL",
-            key=YOUTUBE_URL_INPUT_KEY,
-            placeholder="https://www.youtube.com/watch?v=...",
-            label_visibility="collapsed",
-        )
-    with button_col:
-        convert_url = st.button("CONVERT URL", use_container_width=True)
+    youtube_urls_text = st.text_area(
+        "YouTube URLs",
+        key=YOUTUBE_URL_INPUT_KEY,
+        placeholder="https://www.youtube.com/watch?v=...\nhttps://youtu.be/...",
+        label_visibility="collapsed",
+        height=120,
+    )
+    convert_url = st.button("CONVERT URLS", use_container_width=True)
 
     if not convert_url:
         return
 
-    started_at = perf_counter()
-    ok, content = route_youtube(youtube_url)
-    safe_url = youtube_url.strip()[:YOUTUBE_HISTORY_FILENAME_LIMIT]
-    if not safe_url:
-        safe_url = "youtube-url"
-    _store_history_record(
-        filename=safe_url,
-        extension=YOUTUBE_EXTENSION,
-        ok=ok,
-        duration_seconds=perf_counter() - started_at,
-        file_size=0,
-        message=content,
-        engine_name=YOUTUBE_ENGINE,
-        output_name=YOUTUBE_DOWNLOAD_FILENAME,
-    )
-    st.session_state[CONVERSION_RESULTS_KEY] = {YOUTUBE_DOWNLOAD_FILENAME: (ok, content)}
+    youtube_urls = [line.strip() for line in youtube_urls_text.splitlines() if line.strip()]
+    if not youtube_urls:
+        st.warning("Paste at least one YouTube URL before converting.")
+        return
+
+    results: dict[str, tuple[bool, str]] = {}
+    with st.spinner("Converting YouTube transcripts..."):
+        for index, youtube_url in enumerate(youtube_urls, start=1):
+            started_at = perf_counter()
+            ok, content = route_youtube(youtube_url)
+            safe_url = youtube_url[:YOUTUBE_HISTORY_FILENAME_LIMIT] or "youtube-url"
+            output_name = (
+                YOUTUBE_DOWNLOAD_FILENAME
+                if len(youtube_urls) == 1
+                else f"youtube-transcript-{index}.md"
+            )
+            _store_history_record(
+                filename=safe_url,
+                extension=YOUTUBE_EXTENSION,
+                ok=ok,
+                duration_seconds=perf_counter() - started_at,
+                file_size=0,
+                message=content,
+                engine_name=YOUTUBE_ENGINE,
+                output_name=output_name,
+            )
+            results[output_name] = (ok, content)
+
+    st.session_state[CONVERSION_RESULTS_KEY] = results
     st.session_state[CONVERSION_RESULT_SOURCE_KEY] = SOURCE_YOUTUBE
 
 
