@@ -123,7 +123,6 @@ Test with actual bank statement PDFs from:
 - [ ] No Terminal window required or visible
 - [ ] App loads at localhost:8501 with full neo-brutalist UI
 - [ ] Run bash build-app.sh, "Private Markdown Converter.app" appears in project root
-- [ ] Run bash build-app.sh, "Stop Private Markdown Converter.app" appears in project root
 - [ ] Right-click -> Open on first launch, Gatekeeper warning appears and can be dismissed
 - [ ] Single click on subsequent launches, app opens in browser with no prompts
 - [ ] Drag app to Dock, Dock click launches app correctly
@@ -134,13 +133,9 @@ Test with actual bank statement PDFs from:
 - [ ] Convert a non-encrypted PDF - works correctly
 - [ ] Convert a password-protected PDF using a saved profile - works correctly
       (This specifically tests that keyring/Keychain access is not broken by the launcher. If this fails, the launcher is breaking the Keychain sandbox.)
-- [ ] Double-click stop.sh, Streamlit process stops
-- [ ] Double-click "Stop Private Markdown Converter.app", process stops
-- [ ] macOS notification appears confirming the app stopped
-- [ ] Browser shows connection refused at localhost:8501 after stopping
-- [ ] After stop, browser shows "This site can't be reached" at localhost:8501
-- [ ] Double-click launcher again, app starts fresh
-- [ ] Clicking the launch app again after stopping starts a fresh session
+- [ ] Quit the app from the Dock or app menu, Streamlit process stops
+- [ ] Browser shows connection refused at localhost:8501 after quitting
+- [ ] Reopen the app after quitting, a fresh session starts
 - [ ] Double-clicking launcher while app is already running opens browser only, does not start a second Streamlit instance
 
 ## Distribution readiness

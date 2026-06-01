@@ -3,10 +3,9 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Private Markdown Converter"
-STOP_APP_NAME="Stop Private Markdown Converter"
 APP_PATH="$PROJECT_DIR/$APP_NAME.app"
-STOP_APP_PATH="$PROJECT_DIR/$STOP_APP_NAME.app"
 ICON_SOURCE="$PROJECT_DIR/assets/icon.icns"
+LEGACY_STOP_APP_PATH="$PROJECT_DIR/Stop Private Markdown Converter.app"
 
 create_helper_script() {
   local destination="$1"
@@ -37,6 +36,9 @@ EOF
 apply_icon_if_present() {
   local app_path="$1"
   local icon_dest="$app_path/Contents/Resources/applet.icns"
+  local asset_catalog="$app_path/Contents/Resources/Assets.car"
+
+  rm -f "$asset_catalog"
 
   if [[ -f "$ICON_SOURCE" ]]; then
     cp "$ICON_SOURCE" "$icon_dest"
@@ -48,29 +50,24 @@ apply_icon_if_present() {
 
 echo "Building $APP_NAME.app..."
 rm -rf "$APP_PATH"
-osacompile -o "$APP_PATH" "$PROJECT_DIR/launcher.applescript"
+rm -rf "$LEGACY_STOP_APP_PATH"
+osacompile -s -o "$APP_PATH" "$PROJECT_DIR/launcher.applescript"
 create_helper_script \
   "$APP_PATH/Contents/Resources/scripts/launch-helper.sh" \
   "$PROJECT_DIR/launch.sh"
+create_helper_script \
+  "$APP_PATH/Contents/Resources/scripts/stop-helper.sh" \
+  "$PROJECT_DIR/stop.sh" \
+  "1"
 apply_icon_if_present "$APP_PATH"
 chmod +x "$APP_PATH/Contents/MacOS/applet"
 echo "'$APP_NAME.app' created."
 
-echo "Building $STOP_APP_NAME.app..."
-rm -rf "$STOP_APP_PATH"
-osacompile -o "$STOP_APP_PATH" "$PROJECT_DIR/stopper.applescript"
-create_helper_script \
-  "$STOP_APP_PATH/Contents/Resources/scripts/stop-helper.sh" \
-  "$PROJECT_DIR/stop.sh" \
-  "1"
-apply_icon_if_present "$STOP_APP_PATH"
-chmod +x "$STOP_APP_PATH/Contents/MacOS/applet"
-echo "'$STOP_APP_NAME.app' created."
-
 echo ""
-echo "Done. Both app bundles were created in the project root."
+echo "Done. '$APP_NAME.app' was created in the project root."
 echo ""
 echo "Next steps:"
-echo "  1. Right-click -> Open each app the first time"
-echo "  2. Drag '$APP_NAME.app' and '$STOP_APP_NAME.app' to your Dock or Applications folder"
-echo "  3. Re-run bash build-app.sh after moving the project folder or after major launcher updates"
+echo "  1. Right-click -> Open '$APP_NAME.app' the first time"
+echo "  2. Drag '$APP_NAME.app' to your Dock or Applications folder"
+echo "  3. Quit the app from the Dock or app menu to stop the local service"
+echo "  4. Re-run bash build-app.sh after moving the project folder or after major launcher updates"
