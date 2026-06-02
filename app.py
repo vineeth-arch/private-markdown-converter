@@ -8,6 +8,7 @@ from src.db.database import init_database
 from src.security.temp_cleanup import cleanup_temp_dir
 from src.pages import (
     convert_page,
+    image_ocr_page,
     history_page,
     password_profiles_page,
     settings_page,
@@ -62,7 +63,7 @@ def inject_keepalive() -> None:
     )
 
 
-def page_header(title: str, color: str) -> None:
+def page_header(title: str, color: str, text_color: str = "white") -> None:
     st.markdown(
         f"""
         <div style="
@@ -75,7 +76,7 @@ def page_header(title: str, color: str) -> None:
         ">
             <h1 style="
                 font-family: 'Archivo Black', sans-serif;
-                color: white;
+                color: {text_color};
                 margin: 0;
                 font-size: 28px;
                 text-shadow: 2px 2px 0 rgba(0,0,0,0.2);
@@ -97,6 +98,7 @@ if "startup_done" not in st.session_state:
 
 NAV_ITEMS = [
     "Convert",
+    "Image OCR",
     "History",
     "Password Profiles",
     "Settings",
@@ -150,6 +152,7 @@ with st.sidebar:
 
 PAGE_MAP = {
     "Convert": convert_page,
+    "Image OCR": image_ocr_page,
     "History": history_page,
     "Password Profiles": password_profiles_page,
     "Settings": settings_page,
@@ -158,5 +161,7 @@ PAGE_MAP = {
 
 if selected != "Convert":
     convert_page.clear_session_state()
+if selected != "Image OCR":
+    image_ocr_page.clear_session_state()
 
 PAGE_MAP[selected].render(page_header)
