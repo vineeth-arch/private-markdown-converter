@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -5,6 +6,8 @@ from typing import Any
 from src.converters.ocr_base import BaseOCREngine
 
 SUPPORTED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic", "tiff", "tif", "bmp", "gif"}
+
+logger = logging.getLogger(__name__)
 
 _ocr_model: Any | None = None
 
@@ -27,7 +30,7 @@ def _get_ocr_model() -> Any:
     if _ocr_model is None:
         from paddleocr import PaddleOCR
 
-        _ocr_model = PaddleOCR(use_angle_cls=True, lang="en")
+        _ocr_model = PaddleOCR(lang="en")
     return _ocr_model
 
 
@@ -106,6 +109,58 @@ def _ordered_text_from_detections(detections: list[Any]) -> str:
     return "\n".join(ordered_lines).strip()
 
 
+def _get_item_text(item: Any) -> str:
+    if hasattr(item, "rec_text"):
+        return str(item.rec_text).strip()
+    if isinstance(item, dict) and "rec_text" in item:
+        return str(item["rec_text"]).strip()
+    return ""
+
+
+def _get_item_bbox(item: Any) -> Any | None:
+    for attr_name in ("bbox", "points", "box", "rec_box", "dt_poly", "dt_polys"):
+        if hasattr(item, attr_name):
+            bbox = getattr(item, attr_name)
+            if bbox is not None:
+                return bbox
+    if isinstance(item, dict):
+        for key in ("bbox", "points", "box", "rec_box", "dt_poly", "dt_polys"):
+            bbox = item.get(key)
+            if bbox is not None:
+                return bbox
+    return None
+
+
+def _text_from_predict_result(result: Any) -> str:
+    lines: list[str] = []
+    detections: list[Any] = []
+
+    try:
+        for res in result:
+            for item in res:
+                text = _get_item_text(item)
+                if not text:
+                    continue
+                lines.append(text)
+                bbox = _get_item_bbox(item)
+                if bbox is not None:
+                    detections.append([bbox, [text]])
+    except TypeError:
+        logger.debug("Unsupported PaddleOCR result type: %s", type(result))
+        logger.debug("Unsupported PaddleOCR result: %r", result)
+        raise ValueError("PaddleOCR returned an unsupported result format.")
+
+    if detections and len(detections) == len(lines):
+        return _ordered_text_from_detections(detections)
+    if lines:
+        return "\n".join(lines)
+    if result:
+        logger.debug("Unsupported PaddleOCR result type: %s", type(result))
+        logger.debug("Unsupported PaddleOCR result: %r", result)
+        raise ValueError("PaddleOCR returned an unsupported result format.")
+    return ""
+
+
 class PaddleOCREngine(BaseOCREngine):
     name = "paddleocr"
 
@@ -120,13 +175,13 @@ class PaddleOCREngine(BaseOCREngine):
     def extract_text(self, image_path: Path) -> str:
         _validate_image_path(image_path)
         try:
-            result = _get_ocr_model().ocr(str(image_path), cls=True)
+            result = _get_ocr_model().predict(str(image_path))
         except ValueError:
             raise
         except Exception as exc:
             raise ValueError("Could not read this image. Check that the file is a valid image and try again.") from exc
 
-        text = _ordered_text_from_detections(_iter_detections(result))
+        text = _text_from_predict_result(result)
         if not text:
             raise ValueError("No text detected in image.")
         return text
