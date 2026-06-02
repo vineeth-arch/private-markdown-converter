@@ -4,3 +4,8 @@ markitdown[all]>=0.0.1
 pikepdf>=8.0.0
 keyring>=25.0.0
 msoffcrypto-tool>=6.0.0
+
+# OCR primary engine. Large install; first run can be slow on Apple Silicon while models download/load.
+paddleocr
+paddlepaddle
+ocrmac
